@@ -274,6 +274,17 @@ async function announce(env, user, body) {
     lines.push('Answer in one tap: ' + page);
     return post(env, lines, mentionsFor(n, podMap, roles.openSeatsRoleId), { night: n });
   }
+  if (kind === 'series' || kind === 'seriesUpdated') {
+    const s = await fsGet(env, 'series/' + String(body.id || ''));
+    if (!s) throw new HttpError(404, 'Recurring game not found.');
+    if (!ok(s.by)) throw new HttpError(403, 'Only the person who set it up can announce it.');
+    const isNew = kind === 'series';
+    if (!(await once((isNew ? 'series_' : 'seriesupd_') + body.id, isNew ? 0 : 10))) return { posted: false, reason: isNew ? 'already announced' : 'announced recently' };
+    const lines = [(isNew ? '**New game night: ' : '**Updated: ') + s.title + '**'].concat(details(s, podMap));
+    lines[1] = repeatLabel(s) + (s.time ? ' at ' + fmtTime(s.time) : '') + ', starting ' + fmtDate(s.date) + (s.place ? ', ' + s.place : '');
+    lines.push((isNew ? 'Answer in one tap: ' : 'Details: ') + page);
+    return post(env, lines, mentionsFor(s, podMap, roles.openSeatsRoleId), {});
+  }
   if (kind === 'poll') {
     const p = await fsGet(env, 'polls/' + String(body.id || ''));
     if (!p) throw new HttpError(404, 'Poll not found.');
@@ -287,7 +298,7 @@ async function announce(env, user, body) {
     return post(env, lines, mentionsFor(p, podMap, roles.openSeatsRoleId), {});
   }
   if (kind === 'locked' || kind === 'updated' || kind === 'gameon') {
-    const n = await fsGet(env, 'nights/' + String(body.id || ''));
+    const n = (await fsGet(env, 'nights/' + String(body.id || ''))) || (kind === 'gameon' ? await seriesOccurrence(env, String(body.id || '')) : null);
     if (!n) throw new HttpError(404, 'Night not found.');
     if (kind === 'locked') {
       if (!n.fromPoll || !ok(n.by)) throw new HttpError(403, 'Only the person who locked it in can announce it.');
@@ -311,6 +322,14 @@ async function announce(env, user, body) {
   throw new HttpError(400, 'Unknown announcement.');
 }
 // Pings the roles of the pods a night or poll calls. A night open to everyone (no pods) pings @Open Seats.
+// "<seriesId>_<YYYYMMDD>" -> that date of the recurring game, if it really is one of its dates.
+async function seriesOccurrence(env, id) {
+  const m = /^([A-Za-z0-9]+)_(\d{4})(\d{2})(\d{2})$/.exec(id);
+  if (!m) return null;
+  const s = await fsGet(env, 'series/' + m[1]);
+  const ymd = m[2] + '-' + m[3] + '-' + m[4];
+  return s && seriesDates(s, ymd, ymd).length ? occurrence(s, ymd) : null;
+}
 function mentionsFor(item, podMap, openSeatsRoleId) {
   const pods = (item.podIds || []).map((id) => podMap.get(id)).filter(Boolean);
   const roles = pods.length ? pods.filter((p) => p.roleId).map((p) => p.roleId) : [openSeatsRoleId].filter(Boolean);
@@ -332,7 +351,7 @@ async function daily(env) {
   const roles = await ensureRoles(env);
   const links = await fsList(env, 'links');
   for (const l of links.slice(0, 200)) await syncUser(env, l.id, roles).catch((e) => console.log('sync', l.id, e.message));
-  const [nights, people, settings] = await Promise.all([fsList(env, 'nights'), fsList(env, 'people'), fsGet(env, 'config/settings')]);
+  const [stored, seriesList, people, settings] = await Promise.all([fsList(env, 'nights'), fsList(env, 'series'), fsList(env, 'people'), fsGet(env, 'config/settings')]);
   const blocked = new Set(((settings || {}).blocked) || []);
   const live = people.filter((p) => p.nick && !blocked.has(p.id));
   const tz = env.TIMEZONE || 'America/New_York';
@@ -340,6 +359,8 @@ async function daily(env) {
   const days = String(env.REMIND_DAYS || '1').split(',').map((s) => parseInt(s, 10)).filter((d) => d >= 0);
   const podMap = new Map(roles.pods.map((p) => [p.id, p]));
   const page = String(env.APP_URL).split('#')[0];
+  const last = addDays(today, Math.max(0, ...days));
+  const nights = stored.concat(...seriesList.map((s) => seriesDates(s, today, last).map((d) => occurrence(s, d))));
   let sent = 0;
   for (const d of days) {
     const date = addDays(today, d);
@@ -381,6 +402,55 @@ export function reminderFor(n, days, people, podMap, openSeatsRoleId, page) {
   }
   lines.push('Answer here: ' + page);
   return { lines, roles: [...new Set(roles)], silent: false };
+}
+
+/* ---------------- recurring games (same rules as the app, in UTC date math) ---------------- */
+const STEP = { weekly: 7, biweekly: 14 };
+const ORD = { '1': '1st', '2': '2nd', '3': '3rd', '4': '4th', '-1': 'last' };
+function utcDate(ymd) { const [y, m, d] = String(ymd).split('-').map(Number); return new Date(Date.UTC(y, m - 1, d)); }
+function ymdOf(d) { return d.toISOString().slice(0, 10); }
+function nthOfDate(ymd) { const n = Math.ceil(utcDate(ymd).getUTCDate() / 7); return n >= 5 ? -1 : n; }
+function nthWeekdayUTC(y, m, wd, nth) {
+  let d;
+  if (nth === -1) { d = new Date(Date.UTC(y, m + 1, 0)); while (d.getUTCDay() !== wd) d.setUTCDate(d.getUTCDate() - 1); return d; }
+  d = new Date(Date.UTC(y, m, 1)); while (d.getUTCDay() !== wd) d.setUTCDate(d.getUTCDate() + 1);
+  d.setUTCDate(d.getUTCDate() + 7 * (nth - 1));
+  return d.getUTCMonth() === m ? d : null;
+}
+export function seriesDates(s, from, to, max) {
+  const out = [], skips = s.skips || [], start = utcDate(s.date);
+  let n = 0, guard = 0;
+  const take = (ymd) => {
+    n++;
+    if ((s.count && n > s.count) || (s.until && ymd > s.until) || ymd > to) return false;
+    if (ymd >= from && !skips.includes(ymd)) out.push(ymd);
+    return !(max && out.length >= max);
+  };
+  if (s.freq === 'monthly') {
+    let y = start.getUTCFullYear(), m = start.getUTCMonth();
+    const nth = s.nth || nthOfDate(s.date);
+    while (guard++ < 1200) {
+      const d = nthWeekdayUTC(y, m, start.getUTCDay(), nth);
+      if (d && ymdOf(d) >= s.date && !take(ymdOf(d))) break;
+      if (++m > 11) { m = 0; y++; }
+    }
+  } else {
+    const c = new Date(start.getTime()), step = STEP[s.freq] || 7;
+    while (guard++ < 2600 && take(ymdOf(c))) c.setUTCDate(c.getUTCDate() + step);
+  }
+  return out;
+}
+export function occurrence(s, ymd) {
+  return { id: s.id + '_' + ymd.replace(/-/g, ''), date: ymd, time: s.time || '', title: s.title, place: s.place || '', host: s.host || '',
+    format: s.format, min: s.min || 4, podIds: s.podIds || [], note: s.note || '', by: s.by, series: s.id, virtual: true };
+}
+export function repeatLabel(s) {
+  const day = utcDate(s.date).toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'long' });
+  let out = s.freq === 'monthly' ? 'Monthly on the ' + ORD[String(s.nth || nthOfDate(s.date))] + ' ' + day
+    : (s.freq === 'biweekly' ? 'Every 2 weeks' : 'Every week') + ' on ' + day + 's';
+  if (s.count) out += ', ' + s.count + ' games';
+  else if (s.until) out += ', until ' + utcDate(s.until).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' });
+  return out;
 }
 
 /* ---------------- shared formatting ---------------- */

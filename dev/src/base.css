@@ -44,7 +44,7 @@ button:disabled{cursor:not-allowed;opacity:.5}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
 .field{display:flex;flex-direction:column;gap:5px;min-width:0;border:0;padding:0;margin:0}
 .field label,.field legend{font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);padding:0}
-input[type=text],input[type=email],input[type=password],input[type=date],input[type=time],input[type=number],select,textarea{
+input[type=text],input[type=search],input[type=email],input[type=password],input[type=date],input[type=time],input[type=number],select,textarea{
   width:100%;min-width:0;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:9px 10px;font-size:16px
 }
 textarea{resize:vertical;min-height:64px}
@@ -105,6 +105,14 @@ a.link{display:inline-block}
 .small{padding:7px 12px;font-size:13px}
 .grow{flex:1 1 220px}
 .headctl{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.filters{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,170px) minmax(0,150px) auto;gap:8px;align-items:center}
+.filters select,.filters input{padding:8px 10px}
+.grouphead{font-family:var(--font-mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600;margin:4px 0 -6px}
+.dates{display:flex;flex-wrap:wrap;gap:6px}
+.datechip{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:var(--bg);font-size:12px;font-weight:600;font-family:var(--font-mono)}
+.datechip.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.ans{width:8px;height:8px;border-radius:50%;display:inline-block;flex:none}
+.ans-yes{background:var(--good)} .ans-maybe{background:var(--warn)} .ans-no{background:var(--muted)}
 .stackbox{display:flex;flex-direction:column;gap:8px}
 .check{display:flex;gap:10px;align-items:flex-start;font-size:14px;cursor:pointer}
 .check input{margin-top:3px;width:18px;height:18px;flex:none;accent-color:var(--accent)}
@@ -203,10 +211,11 @@ details.past summary{cursor:pointer;font-weight:600;font-size:14px}
 @media (prefers-reduced-motion:no-preference){
   .rs,.vb,.chip,.primary{transition:background-color .12s,border-color .12s}
   .tapcard{transition:transform .3s cubic-bezier(.3,1.5,.5,1)}
-  .card{transition:transform .18s ease,box-shadow .18s ease}
 }
-@media (hover:hover) and (prefers-reduced-motion:no-preference){
-  .card:hover{transform:translateY(-2px)}
+@media (max-width:600px){
+  .filters{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+  .filters input{grid-column:1/-1}
+  .filters .link{grid-column:1/-1;justify-self:start}
 }
 @media (max-width:420px){
   h1{font-size:30px}

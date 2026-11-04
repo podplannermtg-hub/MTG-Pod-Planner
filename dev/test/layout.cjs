@@ -15,6 +15,7 @@ const seed = () => ({
     n2: { title: 'Saturday Booster Draft at the Shop', date: plus(4), time: '14:00', place: 'The local game shop', format: 'Draft', min: 8, podIds: ['p1', 'p2'], by: 'x', series: 's1' },
     n3: { title: 'Open Night', date: plus(6), time: '', format: 'Pauper', min: 2, podIds: [], by: 'x' }
   },
+  series: { s1: { title: 'Every Other Thursday Commander League', date: plus(3), time: '19:00', format: 'Commander', min: 4, podIds: ['p1'], freq: 'biweekly', skips: [], by: 'me1', at: 1 } },
   polls: { q1: { title: 'Next Tuesday Commander', format: 'Commander', min: 4, place: "Dan's place", host: 'Dan', podIds: ['p1'], note: 'Vote for every date you can make.',
     options: [{ id: 'o0', date: plus(9), time: '19:00' }, { id: 'o1', date: plus(10), time: '19:00' }, { id: 'o2', date: plus(11), time: '14:00' }], by: 'me1', at: 1 } },
   people: {

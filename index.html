@@ -100,7 +100,7 @@ button:disabled{cursor:not-allowed;opacity:.5}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
 .field{display:flex;flex-direction:column;gap:5px;min-width:0;border:0;padding:0;margin:0}
 .field label,.field legend{font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);padding:0}
-input[type=text],input[type=email],input[type=password],input[type=date],input[type=time],input[type=number],select,textarea{
+input[type=text],input[type=search],input[type=email],input[type=password],input[type=date],input[type=time],input[type=number],select,textarea{
   width:100%;min-width:0;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:9px 10px;font-size:16px
 }
 textarea{resize:vertical;min-height:64px}
@@ -161,6 +161,14 @@ a.link{display:inline-block}
 .small{padding:7px 12px;font-size:13px}
 .grow{flex:1 1 220px}
 .headctl{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.filters{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,170px) minmax(0,150px) auto;gap:8px;align-items:center}
+.filters select,.filters input{padding:8px 10px}
+.grouphead{font-family:var(--font-mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600;margin:4px 0 -6px}
+.dates{display:flex;flex-wrap:wrap;gap:6px}
+.datechip{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:var(--bg);font-size:12px;font-weight:600;font-family:var(--font-mono)}
+.datechip.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.ans{width:8px;height:8px;border-radius:50%;display:inline-block;flex:none}
+.ans-yes{background:var(--good)} .ans-maybe{background:var(--warn)} .ans-no{background:var(--muted)}
 .stackbox{display:flex;flex-direction:column;gap:8px}
 .check{display:flex;gap:10px;align-items:flex-start;font-size:14px;cursor:pointer}
 .check input{margin-top:3px;width:18px;height:18px;flex:none;accent-color:var(--accent)}
@@ -259,10 +267,11 @@ details.past summary{cursor:pointer;font-weight:600;font-size:14px}
 @media (prefers-reduced-motion:no-preference){
   .rs,.vb,.chip,.primary{transition:background-color .12s,border-color .12s}
   .tapcard{transition:transform .3s cubic-bezier(.3,1.5,.5,1)}
-  .card{transition:transform .18s ease,box-shadow .18s ease}
 }
-@media (hover:hover) and (prefers-reduced-motion:no-preference){
-  .card:hover{transform:translateY(-2px)}
+@media (max-width:600px){
+  .filters{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+  .filters input{grid-column:1/-1}
+  .filters .link{grid-column:1/-1;justify-self:start}
 }
 @media (max-width:420px){
   h1{font-size:30px}
@@ -379,14 +388,15 @@ details.past summary{cursor:pointer;font-weight:600;font-size:14px}
   <section class="strip" aria-labelledby="nightsH">
     <div class="head">
       <h2 id="nightsH">Game nights</h2>
-      <div class="headctl">
-        <div class="seg" id="filter" role="group" aria-label="Which nights to show">
-          <button type="button" data-f="all" aria-pressed="true">All</button>
-          <button type="button" data-f="mine" aria-pressed="false">My pods</button>
-        </div>
-        <button class="primary" type="button" id="callBtn">Call a night</button>
-      </div>
+      <button class="primary" type="button" id="callBtn">Call a night</button>
     </div>
+    <div class="filters" role="search" aria-label="Find games">
+      <input id="fSearch" type="search" placeholder="Search by name, place or host" aria-label="Search games" autocomplete="off">
+      <select id="fPod" aria-label="Show games for"><option value="all">All pods</option><option value="mine">My pods</option></select>
+      <select id="fFormat" aria-label="Format"><option value="">Any format</option></select>
+      <button class="link" type="button" id="fClear" hidden>Clear filters</button>
+    </div>
+    <p class="hint" id="fCount" hidden></p>
 
     <form id="nightForm" class="panel" hidden>
       <h2 id="formH">Call a night</h2>
@@ -405,12 +415,19 @@ details.past summary{cursor:pointer;font-weight:600;font-size:14px}
         <div class="field" id="repeatField">
           <label for="nRepeat">Repeat</label>
           <select id="nRepeat">
-            <option value="1">Just this once</option>
-            <option value="4">Weekly for 4 weeks</option>
-            <option value="8">Weekly for 8 weeks</option>
-            <option value="12">Weekly for 12 weeks</option>
+            <option value="none" id="optNone">Does not repeat</option>
+            <option value="weekly" id="optWeekly">Every week</option>
+            <option value="biweekly" id="optBiweekly">Every 2 weeks</option>
+            <option value="monthly" id="optMonthly">Every month</option>
           </select>
         </div>
+      </div>
+      <div id="endsFields" class="grid" hidden>
+        <div class="field"><label for="nEnds">Ends</label>
+          <select id="nEnds"><option value="never">Never</option><option value="count">After a number of games</option><option value="until">On a date</option></select>
+        </div>
+        <div class="field" id="nCountField" hidden><label for="nCount">Number of games</label><input id="nCount" type="number" min="2" max="104" value="6" inputmode="numeric"></div>
+        <div class="field" id="nUntilField" hidden><label for="nUntil">Last game on</label><input id="nUntil" type="date"></div>
       </div>
 
       <div id="pollFields" class="field" hidden>
@@ -501,7 +518,7 @@ details.past summary{cursor:pointer;font-weight:600;font-size:14px}
 </div>
 <div id="toast" role="status" hidden></div>
 
-<script src="config.js?v=407a4a8e48"></script>
-<script type="module" src="app.js?v=407a4a8e48"></script>
+<script src="config.js?v=d374b7b7bd"></script>
+<script type="module" src="app.js?v=d374b7b7bd"></script>
 </body>
 </html>

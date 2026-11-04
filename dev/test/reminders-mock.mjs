@@ -15,6 +15,7 @@ const docs = {
     D('nights', 'n3', { title: S('Poll winner'), date: S(tomorrow), time: S('20:00'), min: { integerValue: '2' }, podIds: A([S('p1')]), fromPoll: S('poll1'), fromOpt: S('o1') })
   ],
   pods: [D('pods', 'p1', { name: S('Tuesday Commander') })],
+  series: [D('series', 's1', { title: S('Fortnightly'), date: S(tomorrow), time: S('19:30'), freq: S('biweekly'), min: { integerValue: '4' }, podIds: A([S('p1')]) })],
   people: [
     D('people', 'a', { nick: S('Sam'), pods: A([S('p1')]), res: M({ n1: S('yes') }), bring: M({ n1: S('chips') }), pv: M({ poll1: M({ o1: S('yes') }) }) }),
     D('people', 'b', { nick: S('Dana'), pods: A([S('p1')]), res: M({ n1: S('maybe') }) }),

@@ -41,6 +41,7 @@ const db = new Map(Object.entries({
   'nights/n2': { title: 'cEDH Night', date: day(1), time: '20:00', format: 'cEDH', min: 4, podIds: ['p2'], by: 'u2', at: Date.now() },
   'nights/n3': { title: 'Duel', date: day(1), time: '18:00', format: 'Commander', min: 2, podIds: ['p1'], by: 'u1', at: Date.now() },
   'nights/n4': { title: 'Store Night', date: day(5), time: '18:00', format: 'Draft', min: 8, podIds: [], by: 'u1', at: Date.now() },
+  'series/s1': { title: 'Fortnightly', date: day(1), time: '19:30', format: 'Commander', min: 4, podIds: ['p1'], freq: 'biweekly', skips: [], by: 'u1', at: 1 },
   'polls/q1': { title: 'Next Tuesday', format: 'Commander', min: 4, podIds: ['p1'], options: [{ id: 'o0', date: day(8), time: '19:00' }], by: 'u1' }
 }));
 const enc = (v) => v === null ? { nullValue: null } : typeof v === 'string' ? { stringValue: v } : typeof v === 'boolean' ? { booleanValue: v }
@@ -181,6 +182,17 @@ const go = await call('/announce', dana, { kind: 'gameon', id: 'n3' });
 check('game on posts silently with no pings', go.body.posted && messages.at(-1).flags === 4096 && messages.at(-1).allowed_mentions.roles.length === 0);
 check('unknown kinds are refused', (await call('/announce', rob, { kind: 'spam' })).status === 400);
 
+// Recurring games
+await call('/announce', rob, { kind: 'series', id: 's1' });
+check('new recurring game announced with its repeat', messages.at(-1).content.includes('**New game night: Fortnightly**') && messages.at(-1).content.includes('Every 2 weeks on') && messages.at(-1).allowed_mentions.roles[0] === p1Role);
+check('recurring game announced once', (await call('/announce', rob, { kind: 'series', id: 's1' })).body.posted === false);
+await call('/announce', rob, { kind: 'seriesUpdated', id: 's1' });
+check('recurring game changes announced', messages.at(-1).content.startsWith('<@&' + p1Role + '>\n**Updated: Fortnightly**'));
+check("can't announce someone else's recurring game", (await call('/announce', dana, { kind: 'series', id: 's1' })).status === 403);
+const occ = 's1_' + day(1).replace(/-/g, '');
+check('game on for a recurring date waits for full seats', (await call('/announce', rob, { kind: 'gameon', id: occ })).body.posted === false);
+check('game on refuses a date that is not in the series', (await call('/announce', rob, { kind: 'gameon', id: 's1_' + day(2).replace(/-/g, '') })).status === 404);
+
 // Daily run
 const before = messages.length;
 await worker.scheduled({}, env, { waitUntil: (p) => p });
@@ -188,7 +200,7 @@ await new Promise((r) => setTimeout(r, 50));
 const daily = messages.slice(before);
 const byTitle = (t) => daily.find((m) => m.content.includes('**' + t + '**'));
 const open = byTitle('Thursday Commander'), podOnly = byTitle('cEDH Night'), full = byTitle('Duel');
-check('daily: three reminders for tomorrow', daily.length === 3, daily.map((m) => m.content.split('\n')[0]));
+check('daily: four reminders for tomorrow, including the recurring game', daily.length === 4 && !!byTitle('Fortnightly'), daily.map((m) => m.content.split('\n')[0]));
 check('short open-table night pings its pod and @Open Seats', open && open.allowed_mentions.roles.sort().join() === [p1Role, osRole].sort().join() && open.content.includes('seats are open'));
 check('short pod-only night pings only its pod', podOnly && podOnly.allowed_mentions.roles.join() === p2Role && !podOnly.content.includes('<@&' + osRole + '>'));
 check('full night reminder is silent', full && full.flags === 4096 && full.allowed_mentions.roles.length === 0 && full.content.includes('Game is on'));

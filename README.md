@@ -28,7 +28,9 @@ Files:
   - **Block** anyone on the board. It shuts them out immediately, in either mode.
   - **Discord announcements:** paste the webhook here once. It's stored in the database, where only invited members can read it, not in the page.
 - **Pods** that anyone can join, or that are invite only. Members invite people, and each pod chooses whether its short nights are advertised to @Open Seats.
-- **Game nights** for one or more pods, date polls, weekly repeats, edits, seat counts, a bringing list, calendar links, and Game on messages.
+- **Game nights** for one or more pods, date polls, edits, seat counts, a bringing list, calendar links, and Game on messages.
+- **Recurring games** every week, every 2 weeks, or monthly on a weekday such as "the 1st Friday". They can end never, after a number of games, or on a date. Each recurring game is one card with its upcoming dates; people answer each date separately, and the host can skip a date, edit the series or end it. Calendar links add it as a repeating event.
+- **Finding games:** search by name, place or host, filter by pod or format, and see upcoming games grouped into the next 7 days and later.
 - **Daily reminders** to Discord.
 
 ## 1. Create the Firebase project

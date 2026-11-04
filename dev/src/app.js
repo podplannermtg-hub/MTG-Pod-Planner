@@ -33,9 +33,10 @@ var S = {
   pods: [], nights: [], polls: [], people: {}, members: { emails: [], admins: [] }, requests: [],
   settings: { open: false, blocked: [] }, discord: { webhook: '', ping: '' },
   invites: [], link: null, podEdit: null, podJoin: 'open',
-  loaded: { pods: false, nights: false, polls: false, people: false },
-  confirmed: { pods: false, nights: false, polls: false, people: false },
-  filter: 'all', slow: false, error: false, confirm: null, nickShown: false,
+  series: [], sel: {}, f: { q: '', pod: 'all', format: '' }, editingSeries: null,
+  loaded: { pods: false, nights: false, polls: false, people: false, series: false },
+  confirmed: { pods: false, nights: false, polls: false, people: false, series: false },
+  slow: false, error: false, confirm: null, nickShown: false,
   formPods: new Set(), mode: 'fixed', editing: null,
   request: null, authMode: 'signin', authBusy: false, authError: '', authInfo: '', ciDraft: null
 };
@@ -202,6 +203,8 @@ function announce(text, heading, payload) {
 }
 
 /* ---------- calendar ---------- */
+// A recurring game goes into calendars as one repeating event that starts on its first date.
+function calBase(n) { var s = n.virtual && seriesById(n.series); return s ? occurrence(s, s.date) : n; }
 function calTimes(n) {
   if (!n.time) {
     return { allDay: true, s: n.date.replace(/-/g, ''), e: addDaysYmd(n.date, 1).replace(/-/g, '') };
@@ -215,23 +218,25 @@ function calTimes(n) {
 }
 function calDescription(n) { return (n.note ? n.note + '\n' : '') + 'Answer here: ' + PAGE; }
 function gcalUrl(n) {
-  var t = calTimes(n);
+  var t = calTimes(calBase(n));
   return 'https://calendar.google.com/calendar/render?action=TEMPLATE'
     + '&text=' + encodeURIComponent(n.title)
     + '&dates=' + t.s + '/' + t.e
     + '&location=' + encodeURIComponent(n.place || '')
-    + '&details=' + encodeURIComponent(calDescription(n));
+    + '&details=' + encodeURIComponent(calDescription(n))
+    + (n.virtual && seriesById(n.series) ? '&recur=' + encodeURIComponent(rrule(seriesById(n.series))) : '');
 }
 function icsEscape(s) { return String(s).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n'); }
 function icsText(n) {
-  var t = calTimes(n), now = new Date();
+  var t = calTimes(calBase(n)), now = new Date();
   var stamp = now.getUTCFullYear() + pad(now.getUTCMonth() + 1) + pad(now.getUTCDate()) + 'T' + pad(now.getUTCHours()) + pad(now.getUTCMinutes()) + pad(now.getUTCSeconds()) + 'Z';
   return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Pod Planner//EN', 'CALSCALE:GREGORIAN', 'BEGIN:VEVENT',
-    'UID:' + n.id + '@pod-planner', 'DTSTAMP:' + stamp,
+    'UID:' + (n.virtual ? n.series : n.id) + '@pod-planner', 'DTSTAMP:' + stamp,
     t.allDay ? 'DTSTART;VALUE=DATE:' + t.s : 'DTSTART:' + t.s,
     t.allDay ? 'DTEND;VALUE=DATE:' + t.e : 'DTEND:' + t.e,
-    'SUMMARY:' + icsEscape(n.title), 'LOCATION:' + icsEscape(n.place || ''),
-    'DESCRIPTION:' + icsEscape(calDescription(n)), 'END:VEVENT', 'END:VCALENDAR'].join('\r\n') + '\r\n';
+    'SUMMARY:' + icsEscape(n.title), 'LOCATION:' + icsEscape(n.place || '')].concat(
+    n.virtual && seriesById(n.series) ? [rrule(seriesById(n.series))] : [], [
+    'DESCRIPTION:' + icsEscape(calDescription(n)), 'END:VEVENT', 'END:VCALENDAR']).join('\r\n') + '\r\n';
 }
 function downloadIcs(n) {
   Promise.resolve(BACKEND.saveFile((n.title || 'game-night').replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-') + '.ics', 'text/calendar', icsText(n)))
@@ -282,7 +287,8 @@ function maybeGameOn(n, before) {
     return;
   }
   if (!CONFIG.discordWebhook) return;
-  S.db.doc('nights/' + n.id).update({ gameOnPosted: true }).catch(function () {});
+  if (n.virtual) { try { if (localStorage.getItem('gameon:' + n.id)) return; localStorage.setItem('gameon:' + n.id, '1'); } catch (e) {} }
+  else S.db.doc('nights/' + n.id).update({ gameOnPosted: true }).catch(function () {});
   var text = ['Game on: ' + n.title + ' has ' + min + ' of ' + min + ' seats.'].concat(nightDetails(n, podById()), ['Details: ' + PAGE]).join('\n');
   sendDiscord(text);
 }
@@ -779,9 +785,6 @@ function renderFormPods() {
     box.append(h('label', { class: 'pick', 'for': id }, cb, h('i', { class: 'dot m-' + p.mana }), p.name));
   });
 }
-function renderFilter() {
-  document.querySelectorAll('#filter button').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.f === S.filter)); });
-}
 function keepFocus(fn) {
   var a = document.activeElement, id = a && a.id, v = null, s = null, e = null;
   if (a && 'value' in a) { v = a.value; try { s = a.selectionStart; e = a.selectionEnd; } catch (x) {} }
@@ -794,12 +797,6 @@ function keepFocus(fn) {
       try { if (s != null) el.setSelectionRange(s, e); } catch (x) {}
     }
   }
-}
-function visibleFor(item, pm) {
-  if (S.filter !== 'mine') return true;
-  var mp = new Set((me() && me().pods) || []);
-  var ids = (item.podIds || []).filter(function (id) { return pm[id]; });
-  return ids.length === 0 || ids.some(function (id) { return mp.has(id); });
 }
 
 /* ---------- color identity ---------- */
@@ -933,7 +930,8 @@ function renderPolls() {
   list.forEach(function (p) { box.append(pollCard(p, pm)); });
 }
 
-function nightCard(n, pm) {
+function nightCard(n, pm, g) {
+  var ser = n.virtual ? seriesById(n.series) : null;
   var c = tally(n, pm), st = statusOf(n, c), min = n.min || 4;
   var d = parseDate(n.date);
   var fr = frameFor(n, pm);
@@ -971,7 +969,12 @@ function nightCard(n, pm) {
     h('a', { class: 'link', href: gcalUrl(n), target: '_blank', rel: 'noopener' }, 'Google Calendar'),
     BACKEND.features.ics ? h('button', { type: 'button', class: 'link', onclick: function () { downloadIcs(n); } }, 'Apple or Outlook') : null);
   var owner = h('div', { class: 'owner' });
-  if (canWrite() && mineId(n.by)) {
+  if (canWrite() && mineId(n.by) && ser) {
+    var k1 = S.confirm === 'k:' + n.id, e1 = S.confirm === 'e:' + ser.id;
+    owner.append(h('button', { type: 'button', class: 'link', onclick: function () { startEditSeries(ser); } }, 'Edit series'));
+    owner.append(h('button', { type: 'button', class: 'link' + (k1 ? ' danger' : ''), onclick: function () { skipDate(ser, n); } }, k1 ? 'Tap again to skip this date' : 'Skip this date'));
+    owner.append(h('button', { type: 'button', class: 'link' + (e1 ? ' danger' : ''), onclick: function () { endSeries(ser); } }, e1 ? 'Tap again to end it' : 'End series'));
+  } else if (canWrite() && mineId(n.by)) {
     var a1 = S.confirm === 'n:' + n.id, a2 = S.confirm === 's:' + n.id;
     owner.append(h('button', { type: 'button', class: 'link', onclick: function () { startEdit(n); } }, 'Edit'));
     owner.append(h('button', { type: 'button', class: 'link' + (a1 ? ' danger' : ''), onclick: function () { cancelNight(n); } }, a1 ? 'Tap again to cancel this night' : 'Cancel night'));
@@ -982,7 +985,17 @@ function nightCard(n, pm) {
   if (n.host) meta.push('Host: ' + n.host);
   var nightPods = (n.podIds || []).map(function (id) { return pm[id]; }).filter(Boolean);
   if (nightPods.length) meta.push(nightPods.some(function (p) { return p.openSeats === false; }) ? 'Pod only' : 'Open table');
-  if (n.series) meta.push('Weekly');
+  if (ser) meta.push(repeatLabel(ser)); else if (n.series) meta.push('Weekly');
+  var datesRow = null;
+  if (g && g.items.length > 1) {
+    datesRow = h('div', { class: 'dates', role: 'group', 'aria-label': 'Dates for ' + n.title },
+      g.items.slice(0, 8).map(function (o) {
+        var a = me() ? answerOf(me(), o) : undefined, on = o.id === n.id;
+        return h('button', { type: 'button', class: 'datechip' + (on ? ' on' : ''), 'aria-pressed': String(on), onclick: function () { S.sel[g.key] = o.id; renderNights(); } },
+          parseDate(o.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+          a ? h('i', { class: 'ans ans-' + a, title: a === 'yes' ? "You're in" : a === 'maybe' ? 'Maybe' : "Can't make it" }) : null);
+      }));
+  }
   return h('article', { class: 'night card ' + fr.frame },
     h('div', { class: 'card-in' },
       h('div', { class: 'titlebar' }, h('h3', { text: n.title }),
@@ -996,6 +1009,7 @@ function nightCard(n, pm) {
         h('span', { text: typeLine((n.format || 'Game') + ' Night', n, pm) }),
         h('span', { class: 'pt', 'aria-label': c.yes.length + ' of ' + min + ' seats filled', title: 'Seats filled / needed', text: c.yes.length + '/' + min })),
       h('div', { class: 'textbox' },
+        datesRow,
         meta.length ? h('div', { class: 'meta' }, meta.map(function (m) { return h('span', { text: m }); })) : null,
         n.note ? h('p', { class: 'flavor', text: n.note }) : null,
         roster.children.length ? roster : null,
@@ -1005,19 +1019,29 @@ function nightCard(n, pm) {
 function renderNights() {
   keepFocus(function () {
     var box = $('nights'); box.replaceChildren();
-    if (!S.loaded.nights) { box.append(h('p', { class: 'empty', text: S.db ? 'Loading the board…' : 'Nothing to show until setup is finished.' })); return; }
-    var pm = podById(), today = todayStr();
-    var key = function (n) { return (n.date || '') + (n.time || ''); };
-    var up = S.nights.filter(function (n) { return n.date >= today; }).sort(function (a, b) { return key(a).localeCompare(key(b)); });
-    var past = S.nights.filter(function (n) { return n.date < today; }).sort(function (a, b) { return key(b).localeCompare(key(a)); });
-    up = up.filter(function (n) { return visibleFor(n, pm); });
-    if (!up.length && !S.polls.length) {
-      if (!S.nights.length) box.append(h('div', { class: 'empty' }, h('h3', { text: 'No nights on the board yet' }), h('p', { text: 'Tap Call a night, pick the pods, and everyone can answer from here.' })));
-      else if (S.filter === 'mine') box.append(h('div', { class: 'empty' }, h('h3', { text: 'Nothing called for your pods' }), h('p', { text: 'Switch to All to see every upcoming night, or join a pod above.' })));
+    if (!S.loaded.nights || !S.loaded.series) { box.append(h('p', { class: 'empty', text: S.db ? 'Loading the board…' : 'Nothing to show until setup is finished.' })); return; }
+    var pm = podById(), today = todayStr(), week = addDaysYmd(today, 7);
+    var all = groupNights(upcomingNights());
+    var shown = all.filter(function (g) { return visibleFor(g.items[0], pm); });
+    var polls = S.polls.filter(function (p) { return visibleFor(p, pm); }).length;
+    $('fCount').hidden = !filtersOn();
+    $('fCount').textContent = 'Showing ' + shown.length + ' of ' + all.length + (all.length === 1 ? ' game' : ' games')
+      + (polls ? ' and ' + polls + (polls === 1 ? ' date poll' : ' date polls') : '') + '.';
+    if (!shown.length && !polls) {
+      if (!all.length && !S.polls.length) box.append(h('div', { class: 'empty' }, h('h3', { text: 'No nights on the board yet' }), h('p', { text: 'Tap Call a night, pick the pods, and everyone can answer from here.' })));
+      else if (filtersOn()) box.append(h('div', { class: 'empty' }, h('h3', { text: 'No games match' }), h('p', { text: 'Try another pod or format.' }),
+        h('button', { type: 'button', class: 'ghost', onclick: clearFilters }, 'Clear filters')));
       else box.append(h('div', { class: 'empty' }, h('h3', { text: 'No upcoming nights' }), h('p', { text: 'Call the next one.' })));
     }
-    up.forEach(function (n) { box.append(nightCard(n, pm)); });
+    var soon = shown.filter(function (g) { return g.items[0].date < week; });
+    var later = shown.filter(function (g) { return g.items[0].date >= week; });
+    [['Next 7 days', soon], ['Later', later]].forEach(function (sec) {
+      if (!sec[1].length) return;
+      box.append(h('h3', { class: 'grouphead', text: sec[0] }));
+      sec[1].forEach(function (g) { box.append(nightCard(selectedIn(g), pm, g)); });
+    });
 
+    var past = pastNights().sort(function (x, y) { return (y.date + (y.time || '')).localeCompare(x.date + (x.time || '')); });
     var pw = $('pastWrap'), pb = $('past'); pb.replaceChildren();
     pw.hidden = !past.length;
     $('pastSum').textContent = 'Earlier nights (' + past.length + ')';
@@ -1044,13 +1068,164 @@ function renderAll() {
   renderGate(); renderNotice(); renderMe(); renderPods(); renderInvites(); renderDiscordProfile(); renderFormPods(); renderFilter(); renderPolls(); renderNights(); renderMembers(); updateControls(); maybeOpenNick();
 }
 
+/* ---------- recurring games ----------
+   A recurring game is one "series" document holding the rule (every week, every 2 weeks, or the
+   nth weekday of each month), when it ends, and any skipped dates. Its dates are worked out here;
+   answers are stored per date under the id "<seriesId>_<YYYYMMDD>". */
+var STEP = { weekly: 7, biweekly: 14 };
+var ORD = { '1': '1st', '2': '2nd', '3': '3rd', '4': '4th', '-1': 'last' };
+var DOW = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+function nthOf(ymd) { var n = Math.ceil(parseDate(ymd).getDate() / 7); return n >= 5 ? -1 : n; }
+function nthWeekday(y, m, weekday, nth) {
+  var d;
+  if (nth === -1) { d = new Date(y, m + 1, 0); while (d.getDay() !== weekday) d.setDate(d.getDate() - 1); return d; }
+  d = new Date(y, m, 1); while (d.getDay() !== weekday) d.setDate(d.getDate() + 1);
+  d.setDate(d.getDate() + 7 * (nth - 1));
+  return d.getMonth() === m ? d : null;
+}
+// The series' dates from "from" to "to" (inclusive), minus skipped ones; stops after "max" results.
+function seriesDates(s, from, to, max) {
+  var out = [], skips = s.skips || [], n = 0, guard = 0, start = parseDate(s.date);
+  function take(ymd) {
+    n++;
+    if ((s.count && n > s.count) || (s.until && ymd > s.until) || ymd > to) return false;
+    if (ymd >= from && skips.indexOf(ymd) < 0) out.push(ymd);
+    return !(max && out.length >= max);
+  }
+  if (s.freq === 'monthly') {
+    var y = start.getFullYear(), m = start.getMonth(), nth = s.nth || nthOf(s.date);
+    while (guard++ < 1200) {
+      var d = nthWeekday(y, m, start.getDay(), nth);
+      if (d && fmtYmd(d) >= s.date && !take(fmtYmd(d))) break;
+      if (++m > 11) { m = 0; y++; }
+    }
+  } else {
+    var c = new Date(start.getFullYear(), start.getMonth(), start.getDate()), step = STEP[s.freq] || 7;
+    while (guard++ < 2600 && take(fmtYmd(c))) c.setDate(c.getDate() + step);
+  }
+  return out;
+}
+function occurrence(s, ymd) {
+  return { id: s.id + '_' + ymd.replace(/-/g, ''), date: ymd, time: s.time || '', title: s.title, place: s.place || '', host: s.host || '',
+    format: s.format, min: s.min || 4, podIds: s.podIds || [], note: s.note || '', by: s.by, at: s.at, series: s.id, virtual: true };
+}
+function repeatLabel(s) {
+  var day = parseDate(s.date).toLocaleDateString(undefined, { weekday: 'long' });
+  var out = s.freq === 'monthly' ? 'Monthly on the ' + ORD[String(s.nth || nthOf(s.date))] + ' ' + day
+    : (s.freq === 'biweekly' ? 'Every 2 weeks' : 'Every week') + ' on ' + day + 's';
+  if (s.count) out += ', ' + s.count + ' games';
+  else if (s.until) out += ', until ' + parseDate(s.until).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  return out;
+}
+function seriesById(id) { return S.series.filter(function (s) { return s.id === id; })[0]; }
+function seriesLines(s, pm) {
+  var lines = nightDetails(s, pm);
+  lines[0] = repeatLabel(s) + (s.time ? ' at ' + fmtTime(s.time) : '') + ', starting ' + fmtWhen(s.date, '', true) + (s.place ? ', ' + s.place : '');
+  return lines;
+}
+function rrule(s) {
+  var r = s.freq === 'monthly' ? 'FREQ=MONTHLY;BYDAY=' + (s.nth || nthOf(s.date)) + DOW[parseDate(s.date).getDay()]
+    : 'FREQ=WEEKLY;INTERVAL=' + (s.freq === 'biweekly' ? 2 : 1);
+  if (s.count) r += ';COUNT=' + s.count;
+  else if (s.until) r += ';UNTIL=' + s.until.replace(/-/g, '') + (s.time ? 'T235959' : '');
+  return 'RRULE:' + r;
+}
+// Everything upcoming: one-off nights, older weekly copies, and the next dates of every recurring game.
+function upcomingNights() {
+  var today = todayStr(), horizon = addDaysYmd(today, 400);
+  var list = S.nights.filter(function (n) { return n.date >= today; });
+  S.series.forEach(function (s) { seriesDates(s, today, horizon, 10).forEach(function (d) { list.push(occurrence(s, d)); }); });
+  return list;
+}
+function pastNights() {
+  var today = todayStr(), yesterday = addDaysYmd(today, -1);
+  var list = S.nights.filter(function (n) { return n.date < today; });
+  S.series.forEach(function (s) { if (s.date < today) seriesDates(s, s.date, yesterday).slice(-10).forEach(function (d) { list.push(occurrence(s, d)); }); });
+  return list;
+}
+// One group per one-off night, and one per series (recurring or older weekly copies).
+function groupNights(list) {
+  var key = function (n) { return (n.date || '') + (n.time || ''); };
+  list.sort(function (a, b) { return key(a).localeCompare(key(b)); });
+  var groups = [], byKey = {};
+  list.forEach(function (n) {
+    var k = n.series ? 's:' + n.series : 'n:' + n.id;
+    if (!byKey[k]) { byKey[k] = { key: k, items: [], series: n.virtual ? seriesById(n.series) : null }; groups.push(byKey[k]); }
+    byKey[k].items.push(n);
+  });
+  return groups;
+}
+function selectedIn(g) { var id = S.sel[g.key]; return g.items.filter(function (n) { return n.id === id; })[0] || g.items[0]; }
+function skipDate(s, n) {
+  if (!armConfirm('k:' + n.id, renderNights)) return;
+  S.db.doc('series/' + s.id).update({ skips: (s.skips || []).concat([n.date]) })
+    .then(function () { toast('Skipped ' + fmtWhen(n.date, '')); }).catch(writeError);
+}
+function endSeries(s) {
+  if (!armConfirm('e:' + s.id, renderNights)) return;
+  var today = todayStr();
+  var done = s.date >= today ? S.db.doc('series/' + s.id).delete() : S.db.doc('series/' + s.id).update({ until: addDaysYmd(today, -1) });
+  done.then(function () { toast('Recurring game ended'); }).catch(writeError);
+}
+
+/* ---------- filters ---------- */
+function filtersOn() { return !!(S.f.q || S.f.pod !== 'all' || S.f.format); }
+function visibleFor(item, pm) {
+  var f = S.f, ids = (item.podIds || []).filter(function (id) { return pm[id]; });
+  if (f.pod === 'mine') {
+    var mp = myPods();
+    if (!(ids.length === 0 || ids.some(function (id) { return mp.indexOf(id) >= 0; }))) return false;
+  } else if (f.pod !== 'all' && ids.indexOf(f.pod) < 0) return false;
+  if (f.format && item.format !== f.format) return false;
+  if (f.q) {
+    var hay = [item.title, item.place, item.host, item.note, item.format].join(' ').toLowerCase();
+    if (hay.indexOf(f.q.toLowerCase()) < 0) return false;
+  }
+  return true;
+}
+function renderFilter() {
+  var podSel = $('fPod'), fmtSel = $('fFormat');
+  if (document.activeElement !== podSel) {
+    var opts = [h('option', { value: 'all', text: 'All pods' }), h('option', { value: 'mine', text: 'My pods' })]
+      .concat(podsSorted().map(function (p) { return h('option', { value: p.id, text: p.name }); }));
+    podSel.replaceChildren.apply(podSel, opts);
+    podSel.value = S.f.pod;
+    if (podSel.value !== S.f.pod) { S.f.pod = 'all'; podSel.value = 'all'; }
+  }
+  if (document.activeElement !== fmtSel) {
+    var seen = {};
+    S.nights.concat(S.series, S.polls).forEach(function (x) { if (x.format) seen[x.format] = true; });
+    var fmts = FORMATS.filter(function (f) { return seen[f]; }).concat(Object.keys(seen).filter(function (f) { return FORMATS.indexOf(f) < 0; }));
+    fmtSel.replaceChildren.apply(fmtSel, [h('option', { value: '', text: 'Any format' })].concat(fmts.map(function (f) { return h('option', { value: f, text: f }); })));
+    fmtSel.value = S.f.format;
+    if (fmtSel.value !== S.f.format) { S.f.format = ''; fmtSel.value = ''; }
+  }
+  $('fClear').hidden = !filtersOn();
+}
+function clearFilters() {
+  S.f = { q: '', pod: 'all', format: '' };
+  $('fSearch').value = '';
+  renderFilter(); renderPolls(); renderNights();
+}
+
 /* ---------- night and poll form ---------- */
 function setMode(m) {
   S.mode = m;
   document.querySelectorAll('#modeSeg button').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.m === m)); });
   $('fixedFields').hidden = m !== 'fixed';
   $('pollFields').hidden = m !== 'poll';
-  $('nightSubmit').textContent = S.editing ? 'Save changes' : (m === 'poll' ? 'Post poll' : 'Post night');
+  updateRepeatUI();
+}
+function updateRepeatUI() {
+  var date = $('nDate').value || todayStr(), day = parseDate(date).toLocaleDateString(undefined, { weekday: 'long' });
+  $('optWeekly').textContent = 'Every week on ' + day + 's';
+  $('optBiweekly').textContent = 'Every 2 weeks on ' + day + 's';
+  $('optMonthly').textContent = 'Every month on the ' + ORD[String(nthOf(date))] + ' ' + day;
+  var repeating = $('nRepeat').value !== 'none';
+  $('endsFields').hidden = !repeating || S.mode !== 'fixed' || !!S.editing;
+  $('nCountField').hidden = $('nEnds').value !== 'count';
+  $('nUntilField').hidden = $('nEnds').value !== 'until';
+  $('nightSubmit').textContent = S.editing || S.editingSeries ? 'Save changes' : (S.mode === 'poll' ? 'Post poll' : 'Post night');
 }
 function addPollRow(date, time) {
   var row = h('div', { class: 'optrow' },
@@ -1061,9 +1236,10 @@ function addPollRow(date, time) {
 }
 function resetNightForm() {
   $('nightForm').reset();
-  S.editing = null;
+  S.editing = null; S.editingSeries = null;
   var t = todayStr();
-  $('nDate').value = t; $('nTime').value = '19:00'; $('nMin').value = '4'; $('nRepeat').value = '1';
+  $('nDate').value = t; $('nTime').value = '19:00'; $('nMin').value = '4';
+  $('nRepeat').value = 'none'; $('optNone').disabled = false; $('nEnds').value = 'never'; $('nCount').value = '6'; $('nUntil').value = '';
   $('pollRows').replaceChildren();
   addPollRow(addDaysYmd(t, 2)); addPollRow(addDaysYmd(t, 3)); addPollRow(addDaysYmd(t, 4));
   S.formPods.clear(); renderFormPods();
@@ -1085,6 +1261,68 @@ function startEdit(n) {
   if (f.scrollIntoView) f.scrollIntoView({ block: 'start' });
   $('nTitle').focus();
 }
+function startEditSeries(s) {
+  resetNightForm();
+  S.editingSeries = s.id;
+  $('nTitle').value = s.title || ''; $('nDate').value = s.date; $('nTime').value = s.time || '';
+  $('nFormat').value = s.format || 'Commander'; $('nMin').value = s.min || 4;
+  $('nPlace').value = s.place || ''; $('nHost').value = s.host || ''; $('nNote').value = s.note || '';
+  $('nRepeat').value = s.freq; $('optNone').disabled = true;
+  $('nEnds').value = s.count ? 'count' : s.until ? 'until' : 'never';
+  if (s.count) $('nCount').value = s.count;
+  if (s.until) $('nUntil').value = s.until;
+  S.formPods = new Set(s.podIds || []); renderFormPods();
+  $('formH').textContent = 'Edit recurring game';
+  $('modeSeg').hidden = true;
+  setMode('fixed');
+  var f = $('nightForm'); f.hidden = false;
+  if (f.scrollIntoView) f.scrollIntoView({ block: 'start' });
+  $('nTitle').focus();
+}
+// The series rule from the form. Returns null (after explaining why) if the end date doesn't make sense.
+function seriesFromForm(date, time) {
+  var s = Object.assign(formCommon(), { date: date, time: time, freq: $('nRepeat').value });
+  if (s.freq === 'monthly') s.nth = nthOf(date);
+  var ends = $('nEnds').value;
+  if (ends === 'count') s.count = Math.min(104, Math.max(2, parseInt($('nCount').value, 10) || 6));
+  if (ends === 'until') {
+    var u = $('nUntil').value;
+    if (!u || u < date) { toast('Pick a last date on or after the first game.'); return null; }
+    s.until = u;
+  }
+  return s;
+}
+function submitSeries(date, time) {
+  var s = seriesFromForm(date, time); if (!s) return;
+  s.skips = []; s.by = S.uid; s.at = Date.now();
+  S.db.collection('series').add(s).then(function (ref) {
+    s.id = ref.id;
+    var first = seriesDates(s, date, addDaysYmd(date, 400), 1)[0];
+    if (first) saveMe(function (c) { c.res = c.res || {}; c.res[occurrence(s, first).id] = 'yes'; });
+    var text = ['New game night: ' + s.title].concat(seriesLines(s, podById()), ['Answer in one tap: ' + PAGE]).join('\n');
+    resetNightForm(); $('nightForm').hidden = true;
+    toast('Recurring game posted');
+    return announce(text, 'Recurring game posted', { kind: 'series', id: ref.id });
+  }).catch(writeError);
+}
+function submitSeriesEdit() {
+  var old = seriesById(S.editingSeries);
+  if (!old) { toast('That game is gone.'); resetNightForm(); $('nightForm').hidden = true; return; }
+  var date = $('nDate').value;
+  if (!date) { toast('Pick a date first.'); return; }
+  var s = seriesFromForm(date, $('nTime').value || ''); if (!s) return;
+  var full = Object.assign(s, { skips: old.skips || [], by: old.by, at: old.at || Date.now() });
+  var moved = ['date', 'time', 'place', 'host', 'freq', 'count', 'until'].some(function (k) { return (full[k] || '') !== (old[k] || ''); });
+  S.db.doc('series/' + old.id).set(full).then(function () {
+    resetNightForm(); $('nightForm').hidden = true;
+    toast('Recurring game updated');
+    if (moved) {
+      full.id = old.id;
+      var text = ['Updated: ' + full.title].concat(seriesLines(full, podById()), ['Details: ' + PAGE]).join('\n');
+      return announce(text, 'Update posted', { kind: 'seriesUpdated', id: old.id });
+    }
+  }).catch(writeError);
+}
 function formCommon() {
   var format = $('nFormat').value;
   return {
@@ -1099,24 +1337,15 @@ function submitNights() {
   var date = $('nDate').value;
   if (!date) { toast('Pick a date first.'); return; }
   if (needNick()) return;
-  var common = formCommon(), time = $('nTime').value || '';
-  var repeat = parseInt($('nRepeat').value, 10) || 1;
-  var series = repeat > 1 ? makeId() : '';
-  var docs = [];
-  for (var i = 0; i < repeat; i++) {
-    var d = Object.assign({}, common, { date: addDaysYmd(date, 7 * i), time: time, by: S.uid, at: Date.now() + i });
-    if (series) d.series = series;
-    docs.push(d);
-  }
-  Promise.all(docs.map(function (d) { return S.db.collection('nights').add(d); })).then(function (refs) {
-    saveMe(function (c) { c.res = c.res || {}; refs.forEach(function (r) { c.res[r.id] = 'yes'; }); });
-    var lines = ['New game night: ' + common.title].concat(nightDetails(docs[0], podById()));
-    if (repeat > 1) lines.push('Repeats weekly for ' + repeat + ' weeks.');
-    lines.push('Answer in one tap: ' + PAGE);
-    var text = lines.join('\n');
+  var time = $('nTime').value || '';
+  if ($('nRepeat').value !== 'none') { submitSeries(date, time); return; }
+  var doc = Object.assign(formCommon(), { date: date, time: time, by: S.uid, at: Date.now() });
+  S.db.collection('nights').add(doc).then(function (ref) {
+    saveMe(function (c) { c.res = c.res || {}; c.res[ref.id] = 'yes'; });
+    var text = ['New game night: ' + doc.title].concat(nightDetails(doc, podById()), ['Answer in one tap: ' + PAGE]).join('\n');
     resetNightForm(); $('nightForm').hidden = true;
-    toast(repeat > 1 ? repeat + ' nights posted' : 'Night posted');
-    return announce(text, null, { kind: 'night', ids: refs.map(function (r) { return r.id; }) });
+    toast('Night posted');
+    return announce(text, null, { kind: 'night', ids: [ref.id] });
   }).catch(writeError);
 }
 function submitPoll() {
@@ -1177,7 +1406,7 @@ function wireForms() {
   resetNightForm();
   $('callBtn').addEventListener('click', function () {
     var f = $('nightForm');
-    if (!f.hidden && !S.editing) { f.hidden = true; return; }
+    if (!f.hidden && !S.editing && !S.editingSeries) { f.hidden = true; return; }
     resetNightForm(); f.hidden = false; $('nTitle').focus();
   });
   $('nightCancel').addEventListener('click', function () { resetNightForm(); $('nightForm').hidden = true; });
@@ -1212,9 +1441,12 @@ function wireForms() {
     addPollRow(addDaysYmd(last || todayStr(), 1));
   });
   document.querySelectorAll('#modeSeg button').forEach(function (b) { b.addEventListener('click', function () { setMode(b.dataset.m); }); });
-  document.querySelectorAll('#filter button').forEach(function (b) {
-    b.addEventListener('click', function () { S.filter = b.dataset.f; renderFilter(); renderPolls(); renderNights(); });
-  });
+  $('fSearch').addEventListener('input', function (e) { S.f.q = e.target.value.trim(); $('fClear').hidden = !filtersOn(); renderPolls(); renderNights(); });
+  $('fPod').addEventListener('change', function (e) { S.f.pod = e.target.value; renderFilter(); renderPolls(); renderNights(); });
+  $('fFormat').addEventListener('change', function (e) { S.f.format = e.target.value; renderFilter(); renderPolls(); renderNights(); });
+  $('fClear').addEventListener('click', clearFilters);
+  ['nDate', 'nRepeat', 'nEnds'].forEach(function (id) { $(id).addEventListener('change', updateRepeatUI); });
+  $('nDate').addEventListener('input', updateRepeatUI);
   document.querySelectorAll('#openSeg button').forEach(function (b) {
     b.addEventListener('click', function () { if (S.isAdmin) setOpen(b.dataset.open === 'true'); });
   });
@@ -1244,14 +1476,15 @@ function wireForms() {
   $('nightForm').addEventListener('submit', function (e) {
     e.preventDefault();
     if (!canWrite()) return;
-    if (S.editing) submitEdit();
+    if (S.editingSeries) submitSeriesEdit();
+    else if (S.editing) submitEdit();
     else if (S.mode === 'poll') submitPoll();
     else submitNights();
   });
 }
 
 /* ---------- boot ---------- */
-function allConfirmed() { return S.confirmed.pods && S.confirmed.nights && S.confirmed.polls && S.confirmed.people; }
+function allConfirmed() { return S.confirmed.pods && S.confirmed.nights && S.confirmed.polls && S.confirmed.people && S.confirmed.series; }
 function sub(name, key, assign) {
   S.db.collection(name).onSnapshot(function (snap) {
     assign(snap.docs.map(function (d) { var o = d.data(); o.id = d.id; return o; }));
@@ -1283,6 +1516,7 @@ async function boot() {
   sub('pods', 'pods', function (a) { S.pods = a; });
   sub('nights', 'nights', function (a) { S.nights = a; });
   sub('polls', 'polls', function (a) { S.polls = a; });
+  sub('series', 'series', function (a) { S.series = a; });
   sub(PEOPLE, 'people', function (a) { var m = {}; a.forEach(function (p) { m[p.id] = p; }); S.people = m; });
   sub('invites', null, function (a) { S.invites = a; });
   if (HELPER && S.uid) subDoc('links/' + S.uid, function (d) { S.link = d.discordId ? d : null; });

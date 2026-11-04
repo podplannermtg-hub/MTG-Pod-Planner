@@ -95,14 +95,15 @@
   <section class="strip" aria-labelledby="nightsH">
     <div class="head">
       <h2 id="nightsH">Game nights</h2>
-      <div class="headctl">
-        <div class="seg" id="filter" role="group" aria-label="Which nights to show">
-          <button type="button" data-f="all" aria-pressed="true">All</button>
-          <button type="button" data-f="mine" aria-pressed="false">My pods</button>
-        </div>
-        <button class="primary" type="button" id="callBtn">Call a night</button>
-      </div>
+      <button class="primary" type="button" id="callBtn">Call a night</button>
     </div>
+    <div class="filters" role="search" aria-label="Find games">
+      <input id="fSearch" type="search" placeholder="Search by name, place or host" aria-label="Search games" autocomplete="off">
+      <select id="fPod" aria-label="Show games for"><option value="all">All pods</option><option value="mine">My pods</option></select>
+      <select id="fFormat" aria-label="Format"><option value="">Any format</option></select>
+      <button class="link" type="button" id="fClear" hidden>Clear filters</button>
+    </div>
+    <p class="hint" id="fCount" hidden></p>
 
     <form id="nightForm" class="panel" hidden>
       <h2 id="formH">Call a night</h2>
@@ -121,12 +122,19 @@
         <div class="field" id="repeatField">
           <label for="nRepeat">Repeat</label>
           <select id="nRepeat">
-            <option value="1">Just this once</option>
-            <option value="4">Weekly for 4 weeks</option>
-            <option value="8">Weekly for 8 weeks</option>
-            <option value="12">Weekly for 12 weeks</option>
+            <option value="none" id="optNone">Does not repeat</option>
+            <option value="weekly" id="optWeekly">Every week</option>
+            <option value="biweekly" id="optBiweekly">Every 2 weeks</option>
+            <option value="monthly" id="optMonthly">Every month</option>
           </select>
         </div>
+      </div>
+      <div id="endsFields" class="grid" hidden>
+        <div class="field"><label for="nEnds">Ends</label>
+          <select id="nEnds"><option value="never">Never</option><option value="count">After a number of games</option><option value="until">On a date</option></select>
+        </div>
+        <div class="field" id="nCountField" hidden><label for="nCount">Number of games</label><input id="nCount" type="number" min="2" max="104" value="6" inputmode="numeric"></div>
+        <div class="field" id="nUntilField" hidden><label for="nUntil">Last game on</label><input id="nUntil" type="date"></div>
       </div>
 
       <div id="pollFields" class="field" hidden>
