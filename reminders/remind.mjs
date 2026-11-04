@@ -3,7 +3,7 @@
 //
 // Settings come from environment variables (see .github/workflows/reminders.yml):
 //   FIREBASE_SERVICE_ACCOUNT   required: the whole JSON key file, stored as a GitHub secret.
-//                              A read-only key is enough (see the README).
+//                              A read-only key is enough (see SETUP.md).
 //   DISCORD_WEBHOOK_URL        optional; if empty, the webhook saved in the app is used
 //   DISCORD_PING               optional, '@here' or '@everyone'
 //   TIMEZONE                   default America/New_York
@@ -200,7 +200,7 @@ async function main() {
   let sa;
   try { sa = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT || ''); } catch (e) { sa = null; }
   if (!sa || !sa.client_email || !sa.private_key || !sa.project_id) {
-    throw new Error('Add the FIREBASE_SERVICE_ACCOUNT secret in GitHub (the whole JSON key file). See the README.');
+    throw new Error('Add the FIREBASE_SERVICE_ACCOUNT secret in GitHub (the whole JSON key file). See SETUP.md.');
   }
   const tz = env.TIMEZONE || 'America/New_York';
   const remindDays = (env.REMIND_DAYS || '1').split(',').map((s) => parseInt(s.trim(), 10)).filter((n) => Number.isInteger(n) && n >= 0);
