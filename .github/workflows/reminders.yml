@@ -24,7 +24,7 @@ jobs:
         run: node reminders/remind.mjs
         env:
           # Your page address, added to the end of each reminder.
-          PAGE_URL: PASTE_PAGE_URL
+          PAGE_URL: 'https://podplannermtg-hub.github.io/MTG-Pod-Planner/'
           # Your time zone name, for example America/Chicago or America/Los_Angeles.
           TIMEZONE: America/New_York
           # 1 = the day before. Use '1,0' to also remind on the day of the game.
