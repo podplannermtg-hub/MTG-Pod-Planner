@@ -6,7 +6,7 @@
 //   - Announcements: posts new nights, polls, locked-in dates, changes and "Game on", pinging only the pods involved.
 //   - Daily (cron): re-syncs everyone's roles and posts reminders. Short nights call @Open Seats if their pods allow it.
 //
-// Settings (Cloudflare dashboard > your Worker > Settings > Variables and Secrets). See README.md for where each comes from.
+// Settings (Cloudflare dashboard > your Worker > Settings > Variables and Secrets). See SETUP.md for where each comes from.
 //   APP_URL                 your Pod Planner page, e.g. https://you.github.io/MTG-Pod-Planner/
 //   OWNER_EMAIL             the email in your firestore.rules
 //   DISCORD_CLIENT_ID       Discord app > OAuth2

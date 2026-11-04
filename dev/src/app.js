@@ -141,7 +141,7 @@ function toast(msg) {
 function writeError(e) {
   if (e && e.code === 'invalid_argument') { S.forcedRO = true; renderAll(); return; }
   if (e && e.code === 'quota_exceeded') { toast('The board is full. Remove old nights or pods first.'); return; }
-  if (e && e.code === 'permission-denied') { toast('Not allowed. Check that the Firestore rules from the README are published.'); return; }
+  if (e && e.code === 'permission-denied') { toast('Not allowed. Check that the Firestore rules from SETUP.md are published.'); return; }
   toast('That did not save. Check your connection and try again.');
 }
 var chain = Promise.resolve();
@@ -605,8 +605,8 @@ function authErrorText(e) {
     'auth/missing-password': 'Enter a password.',
     'auth/popup-blocked': 'Your browser blocked the Google window. Allow pop-ups for this site and try again.',
     'auth/too-many-requests': 'Too many tries. Wait a few minutes and try again.',
-    'auth/unauthorized-domain': "This site's address isn't on Firebase's Authorized domains list yet. See the README.",
-    'auth/operation-not-allowed': "That sign-in method isn't turned on in Firebase yet. See the README.",
+    'auth/unauthorized-domain': "This site's address isn't on Firebase's Authorized domains list yet. See SETUP.md.",
+    'auth/operation-not-allowed': "That sign-in method isn't turned on in Firebase yet. See SETUP.md.",
     'auth/network-request-failed': 'Could not reach Firebase. Check your connection.',
     'permission-denied': 'Could not send that. Check that the latest Firestore rules are published.'
   };
@@ -846,7 +846,7 @@ function renderMembers() {
 /* ---------- render ---------- */
 function renderNotice() {
   var msg = '';
-  if (S.state === 'setup') msg = 'Setup is not finished. Open index.html, paste your Firebase settings into CONFIG, and reload. The README has the steps.';
+  if (S.state === 'setup') msg = 'Setup is not finished. Paste your Firebase settings into config.js and reload. SETUP.md has the steps.';
   else if (gated()) msg = '';
   else if (S.state === 'signedout') msg = 'Sign in to claude.ai to see and answer game nights.';
   else if (S.state === 'ok' && !S.uid) msg = 'You can look at the board, but this view has no identity to answer with.';
