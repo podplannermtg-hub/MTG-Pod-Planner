@@ -39,6 +39,11 @@
       </div>
       <p class="hint"><span class="ciname" id="ciName">Colorless</span>. The app takes on your colors, and they show next to your name.</p>
     </fieldset>
+    <div class="field">
+      <label for="area">Your area <span class="optl">optional</span></label>
+      <input id="area" type="text" maxlength="60" autocomplete="off" placeholder="Dublin, OH or 43017">
+      <p class="hint fine">A city and state, or a ZIP code, never your street. Games show roughly how far away they are. <button type="button" class="link" id="hereBtn">Use where I am right now</button> <span id="hereNote"></span> <span class="osm">Map search by <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap</a></span></p>
+    </div>
     <div id="discordProfile" class="stackbox" hidden>
       <span class="sublabel">Discord</span>
       <div class="row" id="discordLinkRow"></div>
@@ -121,7 +126,7 @@
       <button class="primary" type="button" id="callBtn">Call a night</button>
     </div>
     <div class="filters" role="search" aria-label="Find games">
-      <input id="fSearch" type="search" placeholder="Search by name, place or host" aria-label="Search games" autocomplete="off">
+      <input id="fSearch" type="search" placeholder="Search by name, place, address or host" aria-label="Search games" autocomplete="off">
       <select id="fPod" aria-label="Show games for"><option value="all">All pods</option><option value="mine">My pods</option></select>
       <select id="fFormat" aria-label="Format"><option value="">Any format</option></select>
       <button class="link" type="button" id="fClear" hidden>Clear filters</button>
@@ -232,6 +237,8 @@
   <div class="grid">
     <div class="field"><label for="nPlace">Where</label><input id="nPlace" type="text" maxlength="80" placeholder="Dan's place, or the shop"></div>
     <div class="field"><label for="nHost">Host</label><input id="nHost" type="text" maxlength="40" placeholder="Dan"></div>
+    <div class="field wide"><label for="nAddress">Address <span class="optl">optional</span></label><input id="nAddress" type="text" maxlength="120" autocomplete="off" placeholder="123 Main St, Columbus, OH">
+      <p class="hint fine">Shown in the app only, not in Discord. People can tap it for directions. For a home game, cross streets work too. <span class="osm">Map search by <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap</a></span></p></div>
   </div>
   <fieldset class="field">
     <legend>Call these pods</legend>

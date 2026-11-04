@@ -24,12 +24,17 @@ const withDiscord = (s) => { s.config.discord = { webhook: HOOK, ping: '' }; ret
 async function open(browser, auth, seed, extra, viewport) {
   const ctx = await browser.newContext({ viewport: viewport || { width: 400, height: 900 } });
   const page = await ctx.newPage();
-  const errors = [], posts = [];
+  const errors = [], posts = [], geo = [];
   page.on('pageerror', (e) => errors.push(String(e)));
   page.on('console', (m) => { if (m.type() === 'error' && !m.text().includes('ERR_FAILED')) errors.push(m.text()); });
   await page.route('**/*', (route) => {
     const u = route.request().url();
     if (u.startsWith('https://discord.com/api/webhooks/')) { posts.push(JSON.parse(route.request().postData()).content); return route.fulfill({ status: 204, body: '' }); }
+    if (u.startsWith('https://nominatim.openstreetmap.org/search')) {
+      geo.push(decodeURIComponent(u));
+      const hit = /Columbus/.test(decodeURIComponent(u)) ? [{ lat: '39.9612', lon: '-82.9988' }] : /postalcode=43017/.test(u) ? [{ lat: '40.0992', lon: '-83.1141' }] : [];
+      return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify(hit) });
+    }
     if (u.startsWith('file://')) return route.continue();
     return route.abort();
   });
@@ -39,7 +44,7 @@ async function open(browser, auth, seed, extra, viewport) {
     try { if (!window.__defaultCards) localStorage.setItem('pp.cards', 'open'); else localStorage.removeItem('pp.cards'); } catch (e) {}
   }, [seed, auth, extra]);
   await page.goto('file://' + path.resolve(OUT));
-  return { page, errors, posts, ctx };
+  return { page, errors, posts, ctx, geo };
 }
 const tab = (page, t) => page.click('#tabs button[data-tab=' + t + ']');
 const store = (page) => page.evaluate(() => JSON.parse(JSON.stringify(window.__store)));
@@ -435,6 +440,62 @@ const calls = (page) => page.evaluate(() => window.__calls);
     check('guest: copy message offered instead', (await page.inputValue('#announceText')).startsWith('New game night: Guest Night'));
     check('guest: no organizer tools', !(await page.locator('#membersSec').isVisible()));
     check('guest: no errors', errors.length === 0, errors);
+    await page.context().close();
+  }
+
+  /* ===== places: address, directions, area, distance ===== */
+  {
+    const seed = withDiscord(baseSeed());
+    seed.people.me1 = { nick: 'Rob', pods: ['p1'], res: { n1: 'yes' } };
+    const { page, errors, posts, geo, ctx } = await open(browser, { state: 'ok', uid: 'me1', email: 'me@example.com', isAdmin: false }, seed);
+    await page.waitForSelector('article.night');
+    const card = (t) => page.locator('article.night', { hasText: t });
+    await tab(page, 'me');
+    await page.fill('#area', '43017');
+    await page.click('#nickForm button[type=submit]');
+    await page.waitForFunction(() => window.__store.people.me1.area === '43017');
+    let s = await store(page);
+    check('area saved as a rough point', s.people.me1.alat === 40.1 && s.people.me1.alng === -83.11, s.people.me1);
+    check('ZIP looked up as a US postal code', geo.some((u) => u.includes('countrycodes=us&postalcode=43017')));
+    await page.click('#callBtn');
+    await page.fill('#nTitle', 'Brewery Night'); await page.fill('#nDate', plus(2));
+    await page.fill('#nPlace', 'Rogue Brewing'); await page.fill('#nAddress', '123 Main St, Columbus, OH');
+    await page.click('#nightSubmit');
+    await page.waitForSelector('#announce:not([hidden])');
+    s = await store(page);
+    const bn = Object.values(s.nights).find((n) => n.title === 'Brewery Night');
+    check('night saves address and map point', bn.address === '123 Main St, Columbus, OH' && bn.lat === 39.9612 && bn.lng === -82.9988, bn);
+    check('Discord message leaves the address out', posts.some((p) => p.startsWith('New game night: Brewery Night')) && !posts.some((p) => p.includes('Main St')), posts);
+    await page.click('#closeAnnounce');
+    const dist = await card('Brewery Night').locator('.distchip').innerText();
+    check('card shows rough distance', /^1\d(\.\d)? mi$/.test(dist), dist);
+    check('address opens directions', (await card('Brewery Night').locator('a.addr').getAttribute('href')).startsWith('https://www.google.com/maps/dir/?api=1&destination=123%20Main%20St'));
+    check('calendar location includes the address', decodeURIComponent(await card('Brewery Night').locator('a:has-text("Google Calendar")').getAttribute('href')).includes('location=Rogue Brewing, 123 Main St, Columbus, OH'));
+    check('no distance without an address', (await card('Existing Night').locator('.distchip').count()) === 0);
+    const before = geo.length;
+    await card('Brewery Night').locator('button.link', { hasText: 'Edit' }).first().click();
+    check('edit form keeps the address', (await page.inputValue('#nAddress')) === '123 Main St, Columbus, OH');
+    await page.fill('#nHost', 'Dan'); await page.click('#nightSubmit');
+    await page.waitForFunction(() => Object.values(window.__store.nights).some((n) => n.host === 'Dan'));
+    check('unchanged address is not looked up again', geo.length === before && Object.values((await store(page)).nights).find((n) => n.title === 'Brewery Night').lat === 39.9612);
+    await page.waitForTimeout(100);
+    if (await page.isVisible('#closeAnnounce')) await page.click('#closeAnnounce');
+    await page.click('#callBtn');
+    await page.fill('#nTitle', 'Mystery Night'); await page.fill('#nAddress', 'Nowhere at all');
+    await page.click('#nightSubmit');
+    await page.waitForFunction(() => Object.values(window.__store.nights).some((n) => n.title === 'Mystery Night'));
+    s = await store(page);
+    const mn = Object.values(s.nights).find((n) => n.title === 'Mystery Night');
+    check('unknown address still saves, without a point', mn.address === 'Nowhere at all' && mn.lat == null);
+    check('search finds games by address', await (async () => { await page.click('#closeAnnounce').catch(() => {}); await page.fill('#fSearch', 'columbus'); return (await page.locator('article.night').count()) === 1; })());
+    await page.fill('#fSearch', '');
+    await ctx.grantPermissions(['geolocation']); await ctx.setGeolocation({ latitude: 39.962, longitude: -82.999 });
+    await tab(page, 'me'); await page.click('#hereBtn');
+    await page.waitForSelector('#hereNote:has-text("Not saved")');
+    await tab(page, 'games');
+    check('current location: distance from here, not saved', (await card('Brewery Night').locator('.distchip').innerText()) === 'Under 1 mi' && !('lat' in (await store(page)).people.me1));
+    await page.screenshot({ path: path.join(SHOTS, 'shot-places.png'), fullPage: false });
+    check('places: no errors', errors.length === 0, errors);
     await page.context().close();
   }
 
