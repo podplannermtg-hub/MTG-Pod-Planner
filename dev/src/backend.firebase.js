@@ -55,9 +55,16 @@ const BACKEND = {
     },
     resetPassword(email) { return sendPasswordResetEmail(fbAuth, email); },
     signOut() { return signOut(fbAuth); },
-    requestAccess(name) {
+    async requestAccess(name) {
       const u = fbAuth.currentUser;
-      return setDoc(doc(fs, 'requests', u.uid), { email: (u.email || '').toLowerCase(), name, at: Date.now() });
+      const send = () => setDoc(doc(fs, 'requests', u.uid), { email: (u.email || '').toLowerCase(), name, at: Date.now() });
+      try { return await send(); }
+      catch (e) {
+        // A sign-in pass from before the email was confirmed gets refused; get a fresh one and try once more.
+        if (!e || e.code !== 'permission-denied') throw e;
+        await u.getIdToken(true);
+        return send();
+      }
     }
   },
   async connect() {
@@ -70,6 +77,12 @@ const BACKEND = {
     if (!user) return { state: 'signedout' };
     const base = { uid: user.uid, email: (user.email || '').toLowerCase(), profileName: user.displayName || '' };
     if (!user.emailVerified) return Object.assign(base, { state: 'unverified' });
+    // The database checks the confirmed-email flag inside the sign-in pass. A pass issued before the
+    // email was confirmed still says "not confirmed" for up to an hour, so swap it for a fresh one.
+    try {
+      const t = await user.getIdTokenResult();
+      if (t.claims.email_verified !== true) await user.getIdToken(true);
+    } catch (e) {}
 
     // Only members can read the board. A refusal here means "not on the list" (or blocked).
     try { await getDoc(doc(fs, 'people', user.uid)); }
