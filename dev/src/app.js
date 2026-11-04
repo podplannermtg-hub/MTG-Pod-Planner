@@ -290,6 +290,63 @@ function commanderArt(name) {
     })
     .catch(function () { return null; });
 }
+// Commander type-ahead: as you type, Scryfall suggests legal commanders (most played first).
+var cmdSeq = 0, cmdCache = {}, cmdTimer = null;
+function commanderSearch(q) {
+  if (cmdCache[q]) return Promise.resolve(cmdCache[q]);
+  var url = 'https://api.scryfall.com/cards/search?order=edhrec&unique=cards&q=' + encodeURIComponent('is:commander ' + q);
+  return fetch(url, { headers: { Accept: 'application/json' } })
+    .then(function (r) { return r.ok ? r.json() : { data: [] }; })
+    .then(function (j) {
+      var list = (j.data || []).slice(0, 8).map(function (c) {
+        var face = c.card_faces && c.card_faces[0] ? c.card_faces[0] : {};
+        var iu = c.image_uris || face.image_uris || {};
+        return { name: String(c.name || '').slice(0, 80), type: String(c.type_line || '').slice(0, 80), art: safeArt(iu.art_crop), artist: String(c.artist || face.artist || '').slice(0, 60) };
+      }).filter(function (c) { return c.name; });
+      cmdCache[q] = list;
+      return list;
+    }).catch(function () { return []; });
+}
+function cmdList(open) {
+  var ul = $('dCmdList');
+  ul.hidden = !open; $('dCmd').setAttribute('aria-expanded', String(!!open));
+  if (!open) { S.cmdActive = -1; $('dCmd').removeAttribute('aria-activedescendant'); }
+}
+function renderCmdList(list) {
+  var ul = $('dCmdList'); ul.replaceChildren();
+  S.cmdOptions = list; S.cmdActive = -1;
+  if (!list.length) { cmdList(false); return; }
+  list.forEach(function (c, i) {
+    var thumb = h('span', { class: 'dart md', 'aria-hidden': 'true' });
+    if (c.art) thumb.style.backgroundImage = 'url("' + c.art + '")';
+    ul.append(h('li', { id: 'cmdopt' + i, role: 'option', class: 'sopt', 'aria-selected': 'false',
+      onmousedown: function (e) { e.preventDefault(); pickCommander(c); } },
+      thumb, h('span', { class: 'sname' }, h('b', { text: c.name }), h('small', { text: c.type }), c.artist ? h('small', { text: 'Art: ' + c.artist }) : null)));
+  });
+  cmdList(true);
+}
+function moveCmd(step) {
+  var n = (S.cmdOptions || []).length; if (!n || $('dCmdList').hidden) return false;
+  S.cmdActive = (S.cmdActive + step + n) % n;
+  $('dCmdList').querySelectorAll('.sopt').forEach(function (li, i) { li.setAttribute('aria-selected', String(i === S.cmdActive)); if (i === S.cmdActive && li.scrollIntoView) li.scrollIntoView({ block: 'nearest' }); });
+  $('dCmd').setAttribute('aria-activedescendant', 'cmdopt' + S.cmdActive);
+  return true;
+}
+function pickCommander(c) {
+  $('dCmd').value = c.name;
+  S.deckPick = c;
+  cmdList(false);
+}
+function onCmdInput() {
+  S.deckPick = null;
+  var q = $('dCmd').value.trim();
+  clearTimeout(cmdTimer);
+  if (q.length < 2) { cmdList(false); return; }
+  var seq = ++cmdSeq;
+  cmdTimer = setTimeout(function () {
+    commanderSearch(q).then(function (list) { if (seq === cmdSeq && document.activeElement === $('dCmd')) renderCmdList(list); });
+  }, 250);
+}
 function deckArt(d, cls) {
   var art = safeArt(d.art);
   var el = h('span', { class: 'dart' + (cls ? ' ' + cls : '') + (art ? '' : ' none'), 'aria-hidden': 'true', text: art ? '' : initial(d.name) });
@@ -335,7 +392,8 @@ function submitDeck() {
   var btn = $('deckSave'), label = btn.textContent;
   S.deckBusy = true;
   if (cmd && !same) { btn.disabled = true; btn.textContent = 'Finding the commander…'; }
-  (same ? Promise.resolve(old.art ? { name: old.cmd, art: old.art, artist: old.artist } : null) : commanderArt(cmd)).then(function (c) {
+  var picked = S.deckPick && S.deckPick.name === cmd && S.deckPick.art ? S.deckPick : null;
+  (same ? Promise.resolve(old.art ? { name: old.cmd, art: old.art, artist: old.artist } : null) : picked ? Promise.resolve(picked) : commanderArt(cmd)).then(function (c) {
     S.deckBusy = false; btn.disabled = false; btn.textContent = label;
     var d = { id: old ? old.id : makeId(), name: name, b: b };
     if (url) d.url = url;
@@ -2023,6 +2081,14 @@ function wireForms() {
   $('deckCancel').addEventListener('click', closeDeckForm);
   $('deckDelete').addEventListener('click', deleteDeck);
   $('deckForm').addEventListener('submit', function (e) { e.preventDefault(); submitDeck(); });
+  $('dCmd').addEventListener('input', onCmdInput);
+  $('dCmd').addEventListener('keydown', function (e) {
+    if (e.key === 'ArrowDown') { if (moveCmd(1)) e.preventDefault(); }
+    else if (e.key === 'ArrowUp') { if (moveCmd(-1)) e.preventDefault(); }
+    else if (e.key === 'Enter' && !$('dCmdList').hidden && S.cmdActive >= 0) { e.preventDefault(); pickCommander(S.cmdOptions[S.cmdActive]); }
+    else if (e.key === 'Escape' && !$('dCmdList').hidden) { e.preventDefault(); cmdList(false); }
+  });
+  $('dCmd').addEventListener('blur', function () { setTimeout(function () { cmdList(false); }, 120); });
   $('nFormat').addEventListener('change', updateBracketUI);
 }
 

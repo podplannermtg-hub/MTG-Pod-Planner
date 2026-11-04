@@ -60,7 +60,9 @@
     <form id="deckForm" class="stackbox" hidden>
       <div class="grid">
         <div class="field"><label for="dName">Deck name</label><input id="dName" type="text" maxlength="40" required placeholder="Superfriends"></div>
-        <div class="field"><label for="dCmd">Commander <span class="optl">optional</span></label><input id="dCmd" type="text" maxlength="80" autocomplete="off" placeholder="Atraxa, Praetors' Voice"></div>
+        <div class="field wide suggestwrap"><label for="dCmd">Commander <span class="optl">optional</span></label>
+          <input id="dCmd" type="text" maxlength="80" autocomplete="off" spellcheck="false" placeholder="Start typing: atraxa" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="dCmdList">
+          <ul id="dCmdList" class="suggest" role="listbox" aria-label="Matching commanders" hidden></ul></div>
         <div class="field"><label for="dBracket">Bracket <span class="optl">Commander only</span></label>
           <select id="dBracket"><option value="0">Not set</option><option value="1">1 · Exhibition</option><option value="2">2 · Core</option><option value="3">3 · Upgraded</option><option value="4">4 · Optimized</option><option value="5">5 · cEDH</option></select></div>
         <div class="field wide"><label for="dUrl">Link <span class="optl">optional</span></label><input id="dUrl" type="text" inputmode="url" maxlength="200" autocomplete="off" placeholder="https://moxfield.com/decks/…"></div>
