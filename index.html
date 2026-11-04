@@ -4,10 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.gstatic.com https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://*.googleusercontent.com; connect-src 'self' https://*.googleapis.com https://www.gstatic.com https://discord.com https://discordapp.com https://*.workers.dev; frame-src https://*.firebaseapp.com https://accounts.google.com https://apis.google.com; object-src 'none'; base-uri 'none'; form-action 'none'">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="color-scheme" content="light dark">
-<meta name="theme-color" content="#EFEEEC">
+<meta name="theme-color" content="#EFEEEC" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#151514" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Pod Planner">
 <title>Pod Planner</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600..800&family=Hanken+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
 <style>
@@ -326,6 +332,78 @@ details.past summary{cursor:pointer;font-weight:600;font-size:14px}
   .seat{width:26px;height:26px;font-size:12px}
   .titlebar h3{font-size:17px}
 }
+
+/* ---------- tabs: a bottom bar on phones, tabs along the top on wide screens ---------- */
+.tabs{position:fixed;left:0;right:0;bottom:0;z-index:15;display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:2px;
+  background:color-mix(in srgb,var(--surface) 94%,transparent);border-top:1px solid var(--line);
+  -webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);
+  padding:6px max(8px,env(safe-area-inset-right,0px)) calc(6px + env(safe-area-inset-bottom,0px)) max(8px,env(safe-area-inset-left,0px))}
+.tabs button{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-height:50px;min-width:0;
+  background:none;border:0;border-radius:12px;padding:4px 2px;font-size:11px;font-weight:600;color:var(--muted)}
+.tabs svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.tabs button span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.tabs button[aria-current=page]{color:var(--ink)}
+.tabs button[aria-current=page] svg{stroke-width:2.2;color:var(--accent-text)}
+.tabs button[aria-current=page]::before{content:"";position:absolute;top:-6px;left:28%;right:28%;height:3px;border-radius:0 0 3px 3px;background:var(--accent)}
+.tbadge{position:absolute;top:2px;left:calc(50% + 5px);min-width:18px;height:18px;padding:0 5px;border-radius:999px;display:grid;place-items:center;
+  font-style:normal;font-family:var(--font-mono);font-size:11px;font-weight:700;line-height:1;background:var(--accent);color:var(--accent-ink);
+  box-shadow:0 0 0 2px var(--surface)}
+body.tabbed{padding-bottom:calc(92px + env(safe-area-inset-bottom,0px))}
+body.tabbed #toast{bottom:calc(84px + env(safe-area-inset-bottom,0px))}
+@media (min-width:900px){
+  .tabs{position:sticky;top:calc(10px + env(safe-area-inset-top,0px));display:flex;justify-content:flex-start;gap:4px;
+    border:1px solid var(--line);border-radius:14px;padding:5px}
+  .tabs button{flex-direction:row;gap:8px;min-height:40px;padding:6px 14px;font-size:14px}
+  .tabs svg{width:20px;height:20px}
+  .tabs button[aria-current=page]{background:var(--bg)}
+  .tabs button[aria-current=page]::before{display:none}
+  .tbadge{position:static;box-shadow:none}
+  body.tabbed{padding-bottom:calc(56px + env(safe-area-inset-bottom,0px))}
+  body.tabbed #toast{bottom:calc(24px + env(safe-area-inset-bottom,0px))}
+}
+.view{scroll-margin-top:80px}
+#view-me,#membersSec{max-width:720px;width:100%}
+
+/* ---------- compact cards ---------- */
+.card.compact .meta,.card.compact .flavor,.card.compact .roster,.card.compact .textbox > .bring,.card.compact .foot{display:none}
+.card.compact .art{min-height:0;gap:10px}
+.more{align-self:center;background:none;border:0;padding:6px 12px;margin:-4px 0 -6px;font-size:13px;font-weight:700;color:var(--muted);display:inline-flex;align-items:center;gap:6px;border-radius:8px;min-height:36px}
+.more::after{content:"";width:7px;height:7px;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:translateY(-2px) rotate(45deg)}
+.more[aria-expanded=true]::after{transform:translateY(2px) rotate(-135deg)}
+.grouphead.needs{color:var(--accent-text)}
+.cost.needs{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+
+/* ---------- "Call a night": a bottom sheet on phones, a centered dialog on wide screens ---------- */
+.backdrop{position:fixed;inset:0;z-index:40;background:color-mix(in srgb,#000 48%,transparent)}
+body.sheet-open{overflow:hidden}
+.sheet{position:fixed;z-index:41;left:0;right:0;bottom:0;max-height:94dvh;max-height:94vh;overflow-y:auto;overscroll-behavior:contain;
+  border-radius:20px 20px 0 0;border-bottom:0;padding:0 max(16px,env(safe-area-inset-right,0px)) 0 max(16px,env(safe-area-inset-left,0px));
+  box-shadow:0 -12px 40px -12px color-mix(in srgb,#000 40%,transparent)}
+@supports (max-height:94dvh){.sheet{max-height:94dvh}}
+.sheethead{position:sticky;top:0;z-index:2;display:flex;justify-content:space-between;align-items:center;gap:12px;
+  padding:18px 0 12px;background:var(--surface);border-bottom:1px solid var(--line)}
+.sheethead::before{content:"";position:absolute;top:7px;left:50%;width:40px;height:4px;margin-left:-20px;border-radius:4px;background:var(--line)}
+.panel .sheetbar{position:sticky;bottom:0;z-index:2;background:var(--surface);border-top:1px solid var(--line);
+  padding:12px 0 calc(12px + env(safe-area-inset-bottom,0px));align-items:center}
+.sheetbar .primary{flex:1 1 auto}
+.iconbtn{flex:none;width:36px;height:36px;border-radius:50%;border:1px solid var(--line);background:var(--bg);font-size:20px;line-height:1;display:grid;place-items:center;padding:0}
+@media (min-width:700px){
+  .sheet{left:50%;right:auto;bottom:auto;top:50%;transform:translate(-50%,-50%);width:min(640px,calc(100% - 48px));max-height:88vh;
+    border-radius:18px;border-bottom:1px solid var(--line);padding:0 20px;box-shadow:0 24px 60px -20px color-mix(in srgb,#000 50%,transparent)}
+  .sheethead::before{display:none}
+  .panel .sheetbar{padding-bottom:14px}
+  .sheetbar .primary{flex:0 0 auto}
+}
+
+/* ---------- wide screens: more room, two games per row ---------- */
+@media (min-width:1000px){
+  #app{max-width:1080px}
+  #nights{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:18px}
+  #nights > .grouphead,#nights > .empty{grid-column:1/-1}
+  #polls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:18px}
+}
+.field .pick{padding:7px 12px;font-size:14px;font-weight:600;text-transform:none;letter-spacing:0;color:var(--ink)}
+.sheet > *{flex-shrink:0}
 </style>
 </head>
 <body>
@@ -343,8 +421,18 @@ details.past summary{cursor:pointer;font-weight:600;font-size:14px}
 
   <section id="gate" class="panel gate" hidden aria-live="polite"></section>
 
+  <nav id="tabs" class="tabs" aria-label="Sections" hidden>
+    <button type="button" data-tab="games"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg><span>Games</span><i class="tbadge" id="badgeGames" hidden></i></button>
+    <button type="button" data-tab="pods"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="9" r="3.2"/><circle cx="16.5" cy="10" r="2.6"/><path d="M3.5 19c.6-3 2.8-4.6 5.5-4.6s4.9 1.6 5.5 4.6M14.5 15c2.6-.4 4.9.8 5.8 3.6"/></svg><span>Pods</span><i class="tbadge" id="badgePods" hidden></i></button>
+    <button type="button" data-tab="me"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 20c.9-3.6 3.6-5.5 7-5.5s6.1 1.9 7 5.5"/></svg><span>Me</span></button>
+    <button type="button" data-tab="organizer" id="tabOrg" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.2-7 9.5C8 19.2 5 15.5 5 11V6z"/><path d="M9 11.5l2 2 4-4"/></svg><span>Organizer</span></button>
+  </nav>
+
   <div id="board" class="board">
-  <form id="nickForm" class="panel" hidden>
+  <section id="view-me" class="strip view" aria-labelledby="meH" hidden>
+  <div class="head"><h2 id="meH">Your profile</h2></div>
+  <p class="hint" id="welcome" hidden>Welcome! Add your name so your friends know who's coming.</p>
+  <form id="nickForm" class="panel">
     <div class="field">
       <label for="nick">Your name at the table</label>
       <input id="nick" type="text" maxlength="24" autocomplete="nickname" placeholder="Rob" required>
@@ -367,11 +455,20 @@ details.past summary{cursor:pointer;font-weight:600;font-size:14px}
     </div>
     <div class="row">
       <button class="primary" type="submit">Save</button>
-      <button class="ghost" type="button" id="nickCancel">Not now</button>
+      <button class="ghost" type="button" id="nickCancel">Cancel</button>
     </div>
   </form>
+  <div class="panel">
+    <span class="sublabel">Game cards</span>
+    <div class="seg" id="cardsSeg" role="group" aria-label="How game cards start">
+      <button type="button" data-cards="compact" aria-pressed="false">Compact</button>
+      <button type="button" data-cards="open" aria-pressed="false">Show details</button>
+    </div>
+    <p class="hint">Compact cards keep the list short. You can always tap Details on a card. Saved on this device.</p>
+  </div>
+  </section>
 
-  <section class="strip" aria-labelledby="podsH">
+  <section id="view-pods" class="strip view" aria-labelledby="podsH" hidden>
     <div class="head">
       <h2 id="podsH">Pods</h2>
       <button class="ghost" type="button" id="addPodBtn">New pod</button>
@@ -427,7 +524,7 @@ details.past summary{cursor:pointer;font-weight:600;font-size:14px}
     </div>
   </section>
 
-  <section class="strip" aria-labelledby="nightsH">
+  <section id="view-games" class="strip view" aria-labelledby="nightsH">
     <div class="head">
       <h2 id="nightsH">Game nights</h2>
       <button class="primary" type="button" id="callBtn">Call a night</button>
@@ -439,67 +536,6 @@ details.past summary{cursor:pointer;font-weight:600;font-size:14px}
       <button class="link" type="button" id="fClear" hidden>Clear filters</button>
     </div>
     <p class="hint" id="fCount" hidden></p>
-
-    <form id="nightForm" class="panel" hidden>
-      <h2 id="formH">Call a night</h2>
-      <div class="seg" id="modeSeg" role="group" aria-label="How to pick the date">
-        <button type="button" data-m="fixed" aria-pressed="true">Pick a date</button>
-        <button type="button" data-m="poll" aria-pressed="false">Let people vote on dates</button>
-      </div>
-      <div class="field">
-        <label for="nTitle">Night name</label>
-        <input id="nTitle" type="text" maxlength="60" placeholder="Tuesday Commander">
-      </div>
-
-      <div id="fixedFields" class="grid">
-        <div class="field"><label for="nDate">Date</label><input id="nDate" type="date"></div>
-        <div class="field"><label for="nTime">Start</label><input id="nTime" type="time"></div>
-        <div class="field" id="repeatField">
-          <label for="nRepeat">Repeat</label>
-          <select id="nRepeat">
-            <option value="none" id="optNone">Does not repeat</option>
-            <option value="weekly" id="optWeekly">Every week</option>
-            <option value="biweekly" id="optBiweekly">Every 2 weeks</option>
-            <option value="monthly" id="optMonthly">Every month</option>
-          </select>
-        </div>
-      </div>
-      <div id="endsFields" class="grid" hidden>
-        <div class="field"><label for="nEnds">Ends</label>
-          <select id="nEnds"><option value="never">Never</option><option value="count">After a number of games</option><option value="until">On a date</option></select>
-        </div>
-        <div class="field" id="nCountField" hidden><label for="nCount">Number of games</label><input id="nCount" type="number" min="2" max="104" value="6" inputmode="numeric"></div>
-        <div class="field" id="nUntilField" hidden><label for="nUntil">Last game on</label><input id="nUntil" type="date"></div>
-      </div>
-
-      <div id="pollFields" class="field" hidden>
-        <label>Dates to vote on</label>
-        <div id="pollRows"></div>
-        <div class="row"><button class="ghost" type="button" id="addOpt">Add another date</button></div>
-        <p class="hint">Everyone marks which dates they can make. You lock in the winner and it becomes a night.</p>
-      </div>
-
-      <div class="grid">
-        <div class="field"><label for="nFormat">Format</label><select id="nFormat"></select></div>
-        <div class="field"><label for="nMin">Players needed</label><input id="nMin" type="number" min="2" max="12" value="4" inputmode="numeric"></div>
-      </div>
-      <div class="grid">
-        <div class="field"><label for="nPlace">Where</label><input id="nPlace" type="text" maxlength="80" placeholder="Dan's place, or the shop"></div>
-        <div class="field"><label for="nHost">Host</label><input id="nHost" type="text" maxlength="40" placeholder="Dan"></div>
-      </div>
-      <fieldset class="field">
-        <legend>Call these pods</legend>
-        <div id="formPods" class="chips"></div>
-      </fieldset>
-      <div class="field">
-        <label for="nNote">Note</label>
-        <textarea id="nNote" maxlength="300" placeholder="Bring a deck at power level 7. Pizza on me."></textarea>
-      </div>
-      <div class="row">
-        <button class="primary" type="submit" id="nightSubmit">Post night</button>
-        <button class="ghost" type="button" id="nightCancel">Cancel</button>
-      </div>
-    </form>
 
     <section id="announce" class="panel" hidden aria-labelledby="announceH">
       <h2 id="announceH">Night posted</h2>
@@ -519,7 +555,7 @@ details.past summary{cursor:pointer;font-weight:600;font-size:14px}
     </details>
   </section>
 
-  <section id="membersSec" class="strip" aria-labelledby="membersH" hidden>
+  <section id="membersSec" class="strip view" aria-labelledby="membersH" hidden>
     <div class="head"><h2 id="membersH">Organizer tools</h2></div>
     <div class="panel">
       <span class="sublabel">Who can join</span>
@@ -558,9 +594,70 @@ details.past summary{cursor:pointer;font-weight:600;font-size:14px}
   </section>
   </div>
 </div>
+<div id="sheetBackdrop" class="backdrop" hidden></div>
+<form id="nightForm" class="panel sheet" hidden role="dialog" aria-modal="true" aria-labelledby="formH">
+  <div class="sheethead"><h2 id="formH">Call a night</h2><button type="button" class="iconbtn" id="sheetClose" aria-label="Close">×</button></div>
+  <div class="seg" id="modeSeg" role="group" aria-label="How to pick the date">
+    <button type="button" data-m="fixed" aria-pressed="true">Pick a date</button>
+    <button type="button" data-m="poll" aria-pressed="false">Let people vote on dates</button>
+  </div>
+  <div class="field">
+    <label for="nTitle">Night name</label>
+    <input id="nTitle" type="text" maxlength="60" placeholder="Tuesday Commander">
+  </div>
+
+  <div id="fixedFields" class="grid">
+    <div class="field"><label for="nDate">Date</label><input id="nDate" type="date"></div>
+    <div class="field"><label for="nTime">Start</label><input id="nTime" type="time"></div>
+    <div class="field" id="repeatField">
+      <label for="nRepeat">Repeat</label>
+      <select id="nRepeat">
+        <option value="none" id="optNone">Does not repeat</option>
+        <option value="weekly" id="optWeekly">Every week</option>
+        <option value="biweekly" id="optBiweekly">Every 2 weeks</option>
+        <option value="monthly" id="optMonthly">Every month</option>
+      </select>
+    </div>
+  </div>
+  <div id="endsFields" class="grid" hidden>
+    <div class="field"><label for="nEnds">Ends</label>
+      <select id="nEnds"><option value="never">Never</option><option value="count">After a number of games</option><option value="until">On a date</option></select>
+    </div>
+    <div class="field" id="nCountField" hidden><label for="nCount">Number of games</label><input id="nCount" type="number" min="2" max="104" value="6" inputmode="numeric"></div>
+    <div class="field" id="nUntilField" hidden><label for="nUntil">Last game on</label><input id="nUntil" type="date"></div>
+  </div>
+
+  <div id="pollFields" class="field" hidden>
+    <label>Dates to vote on</label>
+    <div id="pollRows"></div>
+    <div class="row"><button class="ghost" type="button" id="addOpt">Add another date</button></div>
+    <p class="hint">Everyone marks which dates they can make. You lock in the winner and it becomes a night.</p>
+  </div>
+
+  <div class="grid">
+    <div class="field"><label for="nFormat">Format</label><select id="nFormat"></select></div>
+    <div class="field"><label for="nMin">Players needed</label><input id="nMin" type="number" min="2" max="12" value="4" inputmode="numeric"></div>
+  </div>
+  <div class="grid">
+    <div class="field"><label for="nPlace">Where</label><input id="nPlace" type="text" maxlength="80" placeholder="Dan's place, or the shop"></div>
+    <div class="field"><label for="nHost">Host</label><input id="nHost" type="text" maxlength="40" placeholder="Dan"></div>
+  </div>
+  <fieldset class="field">
+    <legend>Call these pods</legend>
+    <div id="formPods" class="chips"></div>
+  </fieldset>
+  <div class="field">
+    <label for="nNote">Note</label>
+    <textarea id="nNote" maxlength="300" placeholder="Bring a deck at power level 7. Pizza on me."></textarea>
+  </div>
+  <div class="row sheetbar">
+    <button class="primary" type="submit" id="nightSubmit">Post night</button>
+    <button class="ghost" type="button" id="nightCancel">Cancel</button>
+  </div>
+</form>
 <div id="toast" role="status" hidden></div>
 
-<script src="config.js?v=049d8c2fdf"></script>
-<script type="module" src="app.js?v=049d8c2fdf"></script>
+<script src="config.js?v=764fddeddb"></script>
+<script type="module" src="app.js?v=764fddeddb"></script>
 </body>
 </html>

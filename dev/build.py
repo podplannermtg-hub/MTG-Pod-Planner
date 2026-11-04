@@ -41,8 +41,10 @@ def head(extra=''):
     return ('<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
             '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n' + extra +
             '<meta name="referrer" content="strict-origin-when-cross-origin">\n'
-            '<meta name="color-scheme" content="light dark">\n<meta name="theme-color" content="#EFEEEC">\n'
-            '<meta name="apple-mobile-web-app-capable" content="yes">\n<title>Pod Planner</title>\n' + fonts + '\n'
+            '<meta name="color-scheme" content="light dark">\n<meta name="theme-color" content="#EFEEEC" media="(prefers-color-scheme: light)">\n'
+            '<meta name="theme-color" content="#151514" media="(prefers-color-scheme: dark)">\n'
+            '<meta name="apple-mobile-web-app-capable" content="yes">\n<meta name="mobile-web-app-capable" content="yes">\n'
+            '<meta name="apple-mobile-web-app-title" content="Pod Planner">\n<title>Pod Planner</title>\n' + fonts + '\n'
             '<style>\n' + standalone_css + '</style>\n</head>\n<body>\n' + body)
 
 # Standalone (GitHub Pages): three files.
@@ -51,8 +53,29 @@ import hashlib
 app_js = ('// Pod Planner app. You should not need to edit this file; your settings go in config.js.\n'
           + read('backend.firebase.js') + '\n' + app)
 ver = hashlib.sha256(app_js.encode('utf-8')).hexdigest()[:10]
+# Home-screen app: a manifest and icons, so "Add to Home Screen" gives a proper app icon and a full-screen window.
+import json, shutil
+MANIFEST = {
+    'name': 'Pod Planner', 'short_name': 'Pod Planner',
+    'description': 'Call a game night once. Every pod sees it and answers in one tap.',
+    'start_url': './#games', 'scope': './', 'display': 'standalone',
+    'background_color': '#EFEEEC', 'theme_color': '#EFEEEC',
+    'icons': [
+        {'src': 'icons/icon-192.png', 'sizes': '192x192', 'type': 'image/png', 'purpose': 'any'},
+        {'src': 'icons/icon-512.png', 'sizes': '512x512', 'type': 'image/png', 'purpose': 'any'},
+        {'src': 'icons/icon-maskable-512.png', 'sizes': '512x512', 'type': 'image/png', 'purpose': 'maskable'},
+    ],
+}
+os.makedirs(os.path.join(OUT_DIR, 'icons'), exist_ok=True)
+for icon in ('icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'apple-touch-icon.png'):
+    shutil.copyfile(os.path.join(HERE, 'assets', icon), os.path.join(OUT_DIR, 'icons', icon))
+write(os.path.join(OUT_DIR, 'manifest.webmanifest'), json.dumps(MANIFEST, indent=2) + '\n')
+APP_LINKS = ('<link rel="manifest" href="manifest.webmanifest">\n'
+             '<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">\n'
+             '<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">\n')
+
 write(os.path.join(OUT_DIR, 'index.html'),
-      head('<meta http-equiv="Content-Security-Policy" content="' + CSP + '">\n') +
+      head('<meta http-equiv="Content-Security-Policy" content="' + CSP + '">\n' + APP_LINKS) +
       '\n<script src="config.js?v=' + ver + '"></script>\n<script type="module" src="app.js?v=' + ver + '"></script>\n</body>\n</html>\n')
 write(os.path.join(OUT_DIR, 'app.js'), app_js)
 write(os.path.join(OUT_DIR, 'config.js'), read('config.js'))

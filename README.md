@@ -31,6 +31,8 @@ Files:
 - **Game nights** for one or more pods, date polls, edits, seat counts, a bringing list, calendar links, and Game on messages.
 - **Recurring games** every week, every 2 weeks, or monthly on a weekday such as "the 1st Friday". They can end never, after a number of games, or on a date. Each recurring game is one card with its upcoming dates; people answer each date separately, and the host can skip a date, edit the series or end it. Calendar links add it as a repeating event.
 - **Finding games:** search by name, place or host, filter by pod or format, and see upcoming games grouped into the next 7 days and later.
+- **Made for phones:** a tab bar along the bottom (Games, Pods, Me, and Organizer for organizers) with counts for games you haven't answered and pod invites. Games that need your answer come first, cards stay compact until you tap Details, and Call a night opens as a full-screen sheet. On a computer the tabs sit along the top, cards show everything, games sit two to a row, and Call a night is a centered window.
+- **Home-screen app:** Add to Home Screen gives a proper icon and a full-screen app window.
 - **Daily reminders** to Discord.
 
 ## 1. Create the Firebase project
@@ -77,7 +79,7 @@ Open `config.js` and replace the four `PASTE_...` values with the ones from step
 3. Send your friends the link. They sign in and tap **Ask to join**, and you tap **Approve**. Approving requests is safer than typing emails, because it uses the exact address they signed in with. You can also add emails directly.
 4. **Make organizer** lets someone else approve people, edit or cancel any night, and change these settings.
 
-On a phone, people can use the browser's **Add to Home Screen** option so it opens like an app. If the Google window won't open from a home-screen icon on an iPhone, use email and password there instead.
+On a phone, people can use the browser's **Add to Home Screen** option (on iPhone: the Share button, then Add to Home Screen) so it opens like an app, with the Pod Planner icon. If the Google window won't open from a home-screen icon on an iPhone, use email and password there instead.
 
 ## 7. Turn on the daily reminders (optional)
 

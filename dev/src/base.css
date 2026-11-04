@@ -267,3 +267,75 @@ details.past summary{cursor:pointer;font-weight:600;font-size:14px}
   .seat{width:26px;height:26px;font-size:12px}
   .titlebar h3{font-size:17px}
 }
+
+/* ---------- tabs: a bottom bar on phones, tabs along the top on wide screens ---------- */
+.tabs{position:fixed;left:0;right:0;bottom:0;z-index:15;display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:2px;
+  background:color-mix(in srgb,var(--surface) 94%,transparent);border-top:1px solid var(--line);
+  -webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);
+  padding:6px max(8px,env(safe-area-inset-right,0px)) calc(6px + env(safe-area-inset-bottom,0px)) max(8px,env(safe-area-inset-left,0px))}
+.tabs button{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-height:50px;min-width:0;
+  background:none;border:0;border-radius:12px;padding:4px 2px;font-size:11px;font-weight:600;color:var(--muted)}
+.tabs svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.tabs button span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.tabs button[aria-current=page]{color:var(--ink)}
+.tabs button[aria-current=page] svg{stroke-width:2.2;color:var(--accent-text)}
+.tabs button[aria-current=page]::before{content:"";position:absolute;top:-6px;left:28%;right:28%;height:3px;border-radius:0 0 3px 3px;background:var(--accent)}
+.tbadge{position:absolute;top:2px;left:calc(50% + 5px);min-width:18px;height:18px;padding:0 5px;border-radius:999px;display:grid;place-items:center;
+  font-style:normal;font-family:var(--font-mono);font-size:11px;font-weight:700;line-height:1;background:var(--accent);color:var(--accent-ink);
+  box-shadow:0 0 0 2px var(--surface)}
+body.tabbed{padding-bottom:calc(92px + env(safe-area-inset-bottom,0px))}
+body.tabbed #toast{bottom:calc(84px + env(safe-area-inset-bottom,0px))}
+@media (min-width:900px){
+  .tabs{position:sticky;top:calc(10px + env(safe-area-inset-top,0px));display:flex;justify-content:flex-start;gap:4px;
+    border:1px solid var(--line);border-radius:14px;padding:5px}
+  .tabs button{flex-direction:row;gap:8px;min-height:40px;padding:6px 14px;font-size:14px}
+  .tabs svg{width:20px;height:20px}
+  .tabs button[aria-current=page]{background:var(--bg)}
+  .tabs button[aria-current=page]::before{display:none}
+  .tbadge{position:static;box-shadow:none}
+  body.tabbed{padding-bottom:calc(56px + env(safe-area-inset-bottom,0px))}
+  body.tabbed #toast{bottom:calc(24px + env(safe-area-inset-bottom,0px))}
+}
+.view{scroll-margin-top:80px}
+#view-me,#membersSec{max-width:720px;width:100%}
+
+/* ---------- compact cards ---------- */
+.card.compact .meta,.card.compact .flavor,.card.compact .roster,.card.compact .textbox > .bring,.card.compact .foot{display:none}
+.card.compact .art{min-height:0;gap:10px}
+.more{align-self:center;background:none;border:0;padding:6px 12px;margin:-4px 0 -6px;font-size:13px;font-weight:700;color:var(--muted);display:inline-flex;align-items:center;gap:6px;border-radius:8px;min-height:36px}
+.more::after{content:"";width:7px;height:7px;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:translateY(-2px) rotate(45deg)}
+.more[aria-expanded=true]::after{transform:translateY(2px) rotate(-135deg)}
+.grouphead.needs{color:var(--accent-text)}
+.cost.needs{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+
+/* ---------- "Call a night": a bottom sheet on phones, a centered dialog on wide screens ---------- */
+.backdrop{position:fixed;inset:0;z-index:40;background:color-mix(in srgb,#000 48%,transparent)}
+body.sheet-open{overflow:hidden}
+.sheet{position:fixed;z-index:41;left:0;right:0;bottom:0;max-height:94dvh;max-height:94vh;overflow-y:auto;overscroll-behavior:contain;
+  border-radius:20px 20px 0 0;border-bottom:0;padding:0 max(16px,env(safe-area-inset-right,0px)) 0 max(16px,env(safe-area-inset-left,0px));
+  box-shadow:0 -12px 40px -12px color-mix(in srgb,#000 40%,transparent)}
+@supports (max-height:94dvh){.sheet{max-height:94dvh}}
+.sheethead{position:sticky;top:0;z-index:2;display:flex;justify-content:space-between;align-items:center;gap:12px;
+  padding:18px 0 12px;background:var(--surface);border-bottom:1px solid var(--line)}
+.sheethead::before{content:"";position:absolute;top:7px;left:50%;width:40px;height:4px;margin-left:-20px;border-radius:4px;background:var(--line)}
+.panel .sheetbar{position:sticky;bottom:0;z-index:2;background:var(--surface);border-top:1px solid var(--line);
+  padding:12px 0 calc(12px + env(safe-area-inset-bottom,0px));align-items:center}
+.sheetbar .primary{flex:1 1 auto}
+.iconbtn{flex:none;width:36px;height:36px;border-radius:50%;border:1px solid var(--line);background:var(--bg);font-size:20px;line-height:1;display:grid;place-items:center;padding:0}
+@media (min-width:700px){
+  .sheet{left:50%;right:auto;bottom:auto;top:50%;transform:translate(-50%,-50%);width:min(640px,calc(100% - 48px));max-height:88vh;
+    border-radius:18px;border-bottom:1px solid var(--line);padding:0 20px;box-shadow:0 24px 60px -20px color-mix(in srgb,#000 50%,transparent)}
+  .sheethead::before{display:none}
+  .panel .sheetbar{padding-bottom:14px}
+  .sheetbar .primary{flex:0 0 auto}
+}
+
+/* ---------- wide screens: more room, two games per row ---------- */
+@media (min-width:1000px){
+  #app{max-width:1080px}
+  #nights{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:18px}
+  #nights > .grouphead,#nights > .empty{grid-column:1/-1}
+  #polls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:18px}
+}
+.field .pick{padding:7px 12px;font-size:14px;font-weight:600;text-transform:none;letter-spacing:0;color:var(--ink)}
+.sheet > *{flex-shrink:0}

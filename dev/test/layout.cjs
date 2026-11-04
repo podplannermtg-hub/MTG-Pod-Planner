@@ -38,7 +38,7 @@ const probe = () => {
   if (document.documentElement.scrollWidth > vw + 1) issues.push('page scrolls sideways: ' + document.documentElement.scrollWidth + ' > ' + vw);
   const vis = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
   const label = (el) => el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') + (el.className && typeof el.className === 'string' ? '.' + el.className.trim().split(/\s+/).join('.') : '') + ' "' + (el.textContent || '').trim().slice(0, 30) + '"';
-  document.querySelectorAll('#app *').forEach((el) => {
+  document.querySelectorAll('#app *, #nightForm *').forEach((el) => {
     if (!vis(el) || el.closest('[hidden]')) return;
     const r = el.getBoundingClientRect();
     if (r.right > vw + 0.5 || r.left < -0.5) issues.push('outside viewport: ' + label(el) + ' [' + Math.round(r.left) + ',' + Math.round(r.right) + ']');
@@ -58,7 +58,7 @@ const probe = () => {
     if (new Set(hs).size > 1) issues.push('uneven button heights in ' + row.className + ': ' + hs.join('/'));
   });
   // small tap targets
-  document.querySelectorAll('#app button, #app a, #app select').forEach((b) => {
+  document.querySelectorAll('#app button, #app a, #app select, #nightForm button, #nightForm select').forEach((b) => {
     if (!vis(b) || b.closest('[hidden]')) return;
     const r = b.getBoundingClientRect();
     if (r.height < 24 || r.width < 24) issues.push('small tap target ' + Math.round(r.width) + 'x' + Math.round(r.height) + ': ' + label(b));
@@ -68,28 +68,29 @@ const probe = () => {
 
 (async () => {
   const browser = await chromium.launch();
-  const widths = [320, 375, 414, 768];
+  const widths = [320, 375, 414, 768, 1024, 1440];
   let total = 0;
   for (const scheme of ['light', 'dark']) {
     for (const w of widths) {
-      for (const scenario of ['board', 'nameform', 'podform', 'tools', 'signin']) {
-        if (scheme === 'dark' && w !== 375) continue;
+      for (const scenario of ['board', 'compact', 'nameform', 'podform', 'tools', 'sheet', 'signin']) {
+        if (scheme === 'dark' && w !== 375 && w !== 1440) continue;
         const ctx = await browser.newContext({ viewport: { width: w, height: 900 }, colorScheme: scheme, deviceScaleFactor: w <= 414 ? 2 : 1, hasTouch: w <= 414 });
         const page = await ctx.newPage();
         await page.route('**/*', (r) => r.request().url().startsWith('file://') ? r.continue() : r.abort());
         const auth = scenario === 'signin' ? { state: 'signedout' } : { state: 'ok', uid: 'me1', email: 'me@example.com', isAdmin: scenario === 'tools' };
-        await page.addInitScript(([s, a]) => { window.__seed = s; window.__auth = a; window.__helper = true; }, [seed(), auth]);
+        await page.addInitScript(([s, a, c]) => { window.__seed = s; window.__auth = a; window.__helper = true; try { if (c) localStorage.removeItem('pp.cards'); else localStorage.setItem('pp.cards', 'open'); } catch (e) {} }, [seed(), auth, scenario === 'compact']);
         await page.goto('file://' + path.resolve(OUT));
         if (scenario === 'signin') await page.waitForSelector('#googleBtn');
-        else await page.waitForSelector('article.night');
-        if (scenario === 'nameform') { await page.click('.me-btn'); await page.waitForSelector('#nickForm:not([hidden])'); }
-        if (scenario === 'podform') { await page.locator('.chipwrap', { hasText: 'Friday Night' }).locator('button.podedit').click(); await page.click('#inviteOpen'); }
-        if (scenario === 'tools') { await page.waitForSelector('#membersSec:not([hidden]) #requests .mrow'); await page.locator('#membersSec').scrollIntoViewIfNeeded(); }
+        else await page.waitForSelector('article.night', { state: 'attached' });
+        if (scenario === 'nameform') { await page.click('.me-btn'); await page.waitForSelector('#nickForm:visible'); }
+        if (scenario === 'podform') { await page.click('#tabs button[data-tab=pods]'); await page.locator('.chipwrap', { hasText: 'Friday Night' }).locator('button.podedit').click(); await page.click('#inviteOpen'); }
+        if (scenario === 'sheet') { await page.click('#callBtn'); await page.waitForSelector('#nightForm:visible'); }
+        if (scenario === 'tools') { await page.click('#tabs button[data-tab=organizer]'); await page.waitForSelector('#membersSec:not([hidden]) #requests .mrow'); await page.locator('#membersSec').scrollIntoViewIfNeeded(); }
         const issues = await page.evaluate(probe);
         total += issues.length;
         const tag = scheme + '-' + w + '-' + scenario;
         console.log((issues.length ? 'ISSUES ' : 'ok     ') + tag + (issues.length ? '\n   - ' + issues.join('\n   - ') : ''));
-        await page.screenshot({ path: path.join(SHOTS, tag + '.png'), fullPage: true });
+        await page.screenshot({ path: path.join(SHOTS, tag + '.png'), fullPage: scenario !== 'sheet' });
         await ctx.close();
       }
     }

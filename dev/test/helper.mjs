@@ -139,7 +139,7 @@ check('link saved', db.get('links/u1') && db.get('links/u1').discordId === 'd1' 
 check('joined to the server', members.has('d1'));
 const p1Role = db.get('pods/p1').roleId, p2Role = db.get('pods/p2').roleId, osRole = db.get('config/discordHelper').openSeatsRoleId;
 check('roles created for every pod and Open Seats', roles.get(p1Role).name === 'Tuesday Commander' && roles.get(p2Role).name === 'cEDH Sweats' && roles.get(osRole).name === 'Open Seats');
-check('roles get mana colors', roles.get(p1Role).color === 0x3C9A59 && roles.get(p2Role).color === 0x6A5B72);
+check('roles get mana colors', roles.get(p1Role).color === 0x3C9A59 && roles.get(p2Role).color === 0x3A383E);
 check('Rob got his pod and Open Seats roles only', [...members.get('d1')].sort().join() === [p1Role, osRole].sort().join(), [...members.get('d1')]);
 
 // Sync after changes

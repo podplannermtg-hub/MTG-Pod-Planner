@@ -1,0 +1,30 @@
+{
+  "name": "Pod Planner",
+  "short_name": "Pod Planner",
+  "description": "Call a game night once. Every pod sees it and answers in one tap.",
+  "start_url": "./#games",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#EFEEEC",
+  "theme_color": "#EFEEEC",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

@@ -12,8 +12,18 @@
 
   <section id="gate" class="panel gate" hidden aria-live="polite"></section>
 
+  <nav id="tabs" class="tabs" aria-label="Sections" hidden>
+    <button type="button" data-tab="games"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg><span>Games</span><i class="tbadge" id="badgeGames" hidden></i></button>
+    <button type="button" data-tab="pods"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="9" r="3.2"/><circle cx="16.5" cy="10" r="2.6"/><path d="M3.5 19c.6-3 2.8-4.6 5.5-4.6s4.9 1.6 5.5 4.6M14.5 15c2.6-.4 4.9.8 5.8 3.6"/></svg><span>Pods</span><i class="tbadge" id="badgePods" hidden></i></button>
+    <button type="button" data-tab="me"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 20c.9-3.6 3.6-5.5 7-5.5s6.1 1.9 7 5.5"/></svg><span>Me</span></button>
+    <button type="button" data-tab="organizer" id="tabOrg" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.2-7 9.5C8 19.2 5 15.5 5 11V6z"/><path d="M9 11.5l2 2 4-4"/></svg><span>Organizer</span></button>
+  </nav>
+
   <div id="board" class="board">
-  <form id="nickForm" class="panel" hidden>
+  <section id="view-me" class="strip view" aria-labelledby="meH" hidden>
+  <div class="head"><h2 id="meH">Your profile</h2></div>
+  <p class="hint" id="welcome" hidden>Welcome! Add your name so your friends know who's coming.</p>
+  <form id="nickForm" class="panel">
     <div class="field">
       <label for="nick">Your name at the table</label>
       <input id="nick" type="text" maxlength="24" autocomplete="nickname" placeholder="Rob" required>
@@ -36,11 +46,20 @@
     </div>
     <div class="row">
       <button class="primary" type="submit">Save</button>
-      <button class="ghost" type="button" id="nickCancel">Not now</button>
+      <button class="ghost" type="button" id="nickCancel">Cancel</button>
     </div>
   </form>
+  <div class="panel">
+    <span class="sublabel">Game cards</span>
+    <div class="seg" id="cardsSeg" role="group" aria-label="How game cards start">
+      <button type="button" data-cards="compact" aria-pressed="false">Compact</button>
+      <button type="button" data-cards="open" aria-pressed="false">Show details</button>
+    </div>
+    <p class="hint">Compact cards keep the list short. You can always tap Details on a card. Saved on this device.</p>
+  </div>
+  </section>
 
-  <section class="strip" aria-labelledby="podsH">
+  <section id="view-pods" class="strip view" aria-labelledby="podsH" hidden>
     <div class="head">
       <h2 id="podsH">Pods</h2>
       <button class="ghost" type="button" id="addPodBtn">New pod</button>
@@ -96,7 +115,7 @@
     </div>
   </section>
 
-  <section class="strip" aria-labelledby="nightsH">
+  <section id="view-games" class="strip view" aria-labelledby="nightsH">
     <div class="head">
       <h2 id="nightsH">Game nights</h2>
       <button class="primary" type="button" id="callBtn">Call a night</button>
@@ -108,67 +127,6 @@
       <button class="link" type="button" id="fClear" hidden>Clear filters</button>
     </div>
     <p class="hint" id="fCount" hidden></p>
-
-    <form id="nightForm" class="panel" hidden>
-      <h2 id="formH">Call a night</h2>
-      <div class="seg" id="modeSeg" role="group" aria-label="How to pick the date">
-        <button type="button" data-m="fixed" aria-pressed="true">Pick a date</button>
-        <button type="button" data-m="poll" aria-pressed="false">Let people vote on dates</button>
-      </div>
-      <div class="field">
-        <label for="nTitle">Night name</label>
-        <input id="nTitle" type="text" maxlength="60" placeholder="Tuesday Commander">
-      </div>
-
-      <div id="fixedFields" class="grid">
-        <div class="field"><label for="nDate">Date</label><input id="nDate" type="date"></div>
-        <div class="field"><label for="nTime">Start</label><input id="nTime" type="time"></div>
-        <div class="field" id="repeatField">
-          <label for="nRepeat">Repeat</label>
-          <select id="nRepeat">
-            <option value="none" id="optNone">Does not repeat</option>
-            <option value="weekly" id="optWeekly">Every week</option>
-            <option value="biweekly" id="optBiweekly">Every 2 weeks</option>
-            <option value="monthly" id="optMonthly">Every month</option>
-          </select>
-        </div>
-      </div>
-      <div id="endsFields" class="grid" hidden>
-        <div class="field"><label for="nEnds">Ends</label>
-          <select id="nEnds"><option value="never">Never</option><option value="count">After a number of games</option><option value="until">On a date</option></select>
-        </div>
-        <div class="field" id="nCountField" hidden><label for="nCount">Number of games</label><input id="nCount" type="number" min="2" max="104" value="6" inputmode="numeric"></div>
-        <div class="field" id="nUntilField" hidden><label for="nUntil">Last game on</label><input id="nUntil" type="date"></div>
-      </div>
-
-      <div id="pollFields" class="field" hidden>
-        <label>Dates to vote on</label>
-        <div id="pollRows"></div>
-        <div class="row"><button class="ghost" type="button" id="addOpt">Add another date</button></div>
-        <p class="hint">Everyone marks which dates they can make. You lock in the winner and it becomes a night.</p>
-      </div>
-
-      <div class="grid">
-        <div class="field"><label for="nFormat">Format</label><select id="nFormat"></select></div>
-        <div class="field"><label for="nMin">Players needed</label><input id="nMin" type="number" min="2" max="12" value="4" inputmode="numeric"></div>
-      </div>
-      <div class="grid">
-        <div class="field"><label for="nPlace">Where</label><input id="nPlace" type="text" maxlength="80" placeholder="Dan's place, or the shop"></div>
-        <div class="field"><label for="nHost">Host</label><input id="nHost" type="text" maxlength="40" placeholder="Dan"></div>
-      </div>
-      <fieldset class="field">
-        <legend>Call these pods</legend>
-        <div id="formPods" class="chips"></div>
-      </fieldset>
-      <div class="field">
-        <label for="nNote">Note</label>
-        <textarea id="nNote" maxlength="300" placeholder="Bring a deck at power level 7. Pizza on me."></textarea>
-      </div>
-      <div class="row">
-        <button class="primary" type="submit" id="nightSubmit">Post night</button>
-        <button class="ghost" type="button" id="nightCancel">Cancel</button>
-      </div>
-    </form>
 
     <section id="announce" class="panel" hidden aria-labelledby="announceH">
       <h2 id="announceH">Night posted</h2>
@@ -188,7 +146,7 @@
     </details>
   </section>
 
-  <section id="membersSec" class="strip" aria-labelledby="membersH" hidden>
+  <section id="membersSec" class="strip view" aria-labelledby="membersH" hidden>
     <div class="head"><h2 id="membersH">Organizer tools</h2></div>
     <div class="panel">
       <span class="sublabel">Who can join</span>
@@ -227,4 +185,65 @@
   </section>
   </div>
 </div>
+<div id="sheetBackdrop" class="backdrop" hidden></div>
+<form id="nightForm" class="panel sheet" hidden role="dialog" aria-modal="true" aria-labelledby="formH">
+  <div class="sheethead"><h2 id="formH">Call a night</h2><button type="button" class="iconbtn" id="sheetClose" aria-label="Close">×</button></div>
+  <div class="seg" id="modeSeg" role="group" aria-label="How to pick the date">
+    <button type="button" data-m="fixed" aria-pressed="true">Pick a date</button>
+    <button type="button" data-m="poll" aria-pressed="false">Let people vote on dates</button>
+  </div>
+  <div class="field">
+    <label for="nTitle">Night name</label>
+    <input id="nTitle" type="text" maxlength="60" placeholder="Tuesday Commander">
+  </div>
+
+  <div id="fixedFields" class="grid">
+    <div class="field"><label for="nDate">Date</label><input id="nDate" type="date"></div>
+    <div class="field"><label for="nTime">Start</label><input id="nTime" type="time"></div>
+    <div class="field" id="repeatField">
+      <label for="nRepeat">Repeat</label>
+      <select id="nRepeat">
+        <option value="none" id="optNone">Does not repeat</option>
+        <option value="weekly" id="optWeekly">Every week</option>
+        <option value="biweekly" id="optBiweekly">Every 2 weeks</option>
+        <option value="monthly" id="optMonthly">Every month</option>
+      </select>
+    </div>
+  </div>
+  <div id="endsFields" class="grid" hidden>
+    <div class="field"><label for="nEnds">Ends</label>
+      <select id="nEnds"><option value="never">Never</option><option value="count">After a number of games</option><option value="until">On a date</option></select>
+    </div>
+    <div class="field" id="nCountField" hidden><label for="nCount">Number of games</label><input id="nCount" type="number" min="2" max="104" value="6" inputmode="numeric"></div>
+    <div class="field" id="nUntilField" hidden><label for="nUntil">Last game on</label><input id="nUntil" type="date"></div>
+  </div>
+
+  <div id="pollFields" class="field" hidden>
+    <label>Dates to vote on</label>
+    <div id="pollRows"></div>
+    <div class="row"><button class="ghost" type="button" id="addOpt">Add another date</button></div>
+    <p class="hint">Everyone marks which dates they can make. You lock in the winner and it becomes a night.</p>
+  </div>
+
+  <div class="grid">
+    <div class="field"><label for="nFormat">Format</label><select id="nFormat"></select></div>
+    <div class="field"><label for="nMin">Players needed</label><input id="nMin" type="number" min="2" max="12" value="4" inputmode="numeric"></div>
+  </div>
+  <div class="grid">
+    <div class="field"><label for="nPlace">Where</label><input id="nPlace" type="text" maxlength="80" placeholder="Dan's place, or the shop"></div>
+    <div class="field"><label for="nHost">Host</label><input id="nHost" type="text" maxlength="40" placeholder="Dan"></div>
+  </div>
+  <fieldset class="field">
+    <legend>Call these pods</legend>
+    <div id="formPods" class="chips"></div>
+  </fieldset>
+  <div class="field">
+    <label for="nNote">Note</label>
+    <textarea id="nNote" maxlength="300" placeholder="Bring a deck at power level 7. Pizza on me."></textarea>
+  </div>
+  <div class="row sheetbar">
+    <button class="primary" type="submit" id="nightSubmit">Post night</button>
+    <button class="ghost" type="button" id="nightCancel">Cancel</button>
+  </div>
+</form>
 <div id="toast" role="status" hidden></div>
