@@ -199,10 +199,11 @@ function sendDiscord(text) {
     body: JSON.stringify({ content: (ping + text).slice(0, 1900), allowed_mentions: { parse: CONFIG.discordPing ? ['everyone'] : [] } })
   }).then(function (r) { return r.ok; }).catch(function () { return false; });
 }
-function showAnnounce(text, sent, heading) {
-  $('announceH').textContent = sent ? (heading || 'Night posted') + ' and sent to Discord' : (heading || 'Night posted');
-  $('announceHint').textContent = sent
-    ? 'Paste the same message into any group chat that is not on Discord.'
+function showAnnounce(text, sent, heading, priv) {
+  $('announceH').textContent = sent ? (heading || 'Night posted') + (priv ? ' and sent to the pod\'s Discord channel' : ' and sent to Discord') : (heading || 'Night posted');
+  $('announceHint').textContent = priv
+    ? (sent ? 'It went only to this pod\'s private channel. ' : 'This game is private, so it wasn\'t sent to the shared Discord channel. ') + 'If you paste it anywhere, keep it to places only the pod can see.'
+    : sent ? 'Paste the same message into any group chat that is not on Discord.'
     : 'Paste this into your group chats so people know to open the page.';
   $('announceText').value = text;
   $('announce').hidden = false;
@@ -211,10 +212,11 @@ function podOfBase(base) { return base ? base.split('/')[1] : ''; }
 function announce(text, heading, payload) {
   // A private pod's games never go to the shared webhook; the helper posts them in the pod's own channel.
   if (payload && !payload.pod) delete payload.pod;
-  if (payload && payload.pod && !HELPER) { showAnnounce(text, false, heading); return Promise.resolve(); }
+  var priv = !!(payload && payload.pod);
+  if (priv && !HELPER) { showAnnounce(text, false, heading, true); return Promise.resolve(); }
   if (HELPER && payload) {
-    return HELPER.call('/announce', payload).then(function (r) { showAnnounce(text, !!(r && r.posted), heading); },
-      function () { showAnnounce(text, false, heading); });
+    return HELPER.call('/announce', payload).then(function (r) { showAnnounce(text, !!(r && r.posted), heading, priv); },
+      function () { showAnnounce(text, false, heading, priv); });
   }
   return sendDiscord(text).then(function (sent) { showAnnounce(text, sent, heading); });
 }
@@ -772,7 +774,7 @@ function setPodVis(v) {
   var p = S.podEdit ? podById()[S.podEdit] : null, locked = !!p && !S.isAdmin;
   document.querySelectorAll('#podVisSeg button').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.vis === v)); b.disabled = locked; });
   $('podVisHint').textContent = v === 'private'
-    ? 'Only its members (and organizers) can see this pod, who is in it, and its games. People join by invite. Its games post in a private Discord channel.'
+    ? 'Only its members (and organizers) can see this pod, who is in it, and its games. People join by invite: members can suggest someone, and the pod\'s creator approves. Its games post in its own private Discord channel.'
     : 'Everyone on the board can see this pod and its games.';
   if (locked) $('podVisHint').textContent += ' Only an organizer can change this for an existing pod.';
   $('podJoinField').hidden = v === 'private';
@@ -782,7 +784,7 @@ function setPodJoin(v) {
   S.podJoin = v;
   document.querySelectorAll('#podJoinSeg button').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.join === v)); });
   $('podJoinHint').textContent = v === 'invite'
-    ? 'Members invite people in. Everyone can still see its nights and answer them.'
+    ? 'Members invite people in. This pod is still visible to everyone, and anyone can answer its games. To hide it, choose Members only above.'
     : 'Anyone can tap to join.';
 }
 function openPodForm(p) {
@@ -856,7 +858,7 @@ function renderDiscordProfile() {
       h('button', { type: 'button', class: 'link' + (armed ? ' danger' : ''), onclick: unlinkDiscord }, armed ? 'Tap again to disconnect' : 'Disconnect'));
   } else {
     row.append(h('button', { type: 'button', class: 'ghost', id: 'connectDiscord', onclick: connectDiscord }, 'Connect Discord'),
-      h('span', { class: 'hint', text: 'Joins our server and gives you your pod roles automatically.' }));
+      h('span', { class: 'hint', text: 'Joins our server and gives you your pod roles (and private pod channels) automatically.' }));
   }
   if (document.activeElement !== $('openSeatsMe')) $('openSeatsMe').checked = !!(me() && me().openSeats);
 }
@@ -1092,7 +1094,7 @@ function renderMembers() {
   });
 
   $('discordHint').textContent = S.discord.webhook
-    ? 'Connected. New nights, polls, updates and Game on messages go to your channel. Only invited members and organizers can read this setting.'
+    ? 'Connected. New nights, polls, updates and Game on messages go to your channel (except private pods\' games). Only invited members and organizers can read this setting.'
     : 'Not connected. In Discord: Edit Channel, Integrations, Webhooks, New Webhook, Copy Webhook URL. Paste it here.';
   if (document.activeElement !== $('discWebhook')) $('discWebhook').value = S.discord.webhook;
   if (document.activeElement !== $('discPing')) $('discPing').value = S.discord.ping;
@@ -1116,7 +1118,7 @@ function renderMembers() {
   all.forEach(function (e) {
     var admin = (S.members.admins || []).indexOf(e) >= 0, armed = S.confirm === 'm:' + e;
     ml.append(h('div', { class: 'mrow' },
-      h('div', { class: 'minfo' }, h('b', { text: e }), admin ? h('span', { text: 'Organizer: can approve people and edit any night' }) : null),
+      h('div', { class: 'minfo' }, h('b', { text: e }), admin ? h('span', { text: 'Organizer: can approve people, edit any game, and see every pod' }) : null),
       h('div', { class: 'mact' },
         h('button', { type: 'button', class: 'link', onclick: function () { toggleAdmin(e); } }, admin ? 'Make regular member' : 'Make organizer'),
         h('button', { type: 'button', class: 'link' + (armed ? ' danger' : ''), onclick: function () { removeMember(e); } }, armed ? 'Tap again to remove' : 'Remove'))));
@@ -1496,7 +1498,7 @@ function renderNights() {
       + (polls ? ' and ' + polls + (polls === 1 ? ' date poll' : ' date polls') : '') + '.';
     if (!shown.length && !polls) {
       if (!all.length && !S.polls.length) box.append(h('div', { class: 'empty' }, h('h3', { text: 'No nights on the board yet' }), h('p', { text: 'Tap Call a night, pick the pods, and everyone can answer from here.' })));
-      else if (filtersOn()) box.append(h('div', { class: 'empty' }, h('h3', { text: 'No games match' }), h('p', { text: 'Try another pod or format.' }),
+      else if (filtersOn()) box.append(h('div', { class: 'empty' }, h('h3', { text: 'No games match' }), h('p', { text: 'Try another pod, format or area.' }),
         h('button', { type: 'button', class: 'ghost', onclick: clearFilters }, 'Clear filters')));
       else box.append(h('div', { class: 'empty' }, h('h3', { text: 'No upcoming nights' }), h('p', { text: 'Call the next one.' })));
     }
