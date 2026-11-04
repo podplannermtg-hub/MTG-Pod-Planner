@@ -42,7 +42,7 @@ const check = (name, ok, extra) => { results.push(ok); console.log((ok ? 'PASS '
       const u = route.request().url();
       const m = u.match(/^https:\/\/www\.gstatic\.com\/firebasejs\/10\.12\.2\/(firebase-[a-z]+\.js)$/);
       if (m) return route.fulfill({ status: 200, contentType: 'text/javascript', headers: { 'Access-Control-Allow-Origin': '*' }, body: STUBS[m[1]] });
-      if (configured && u.endsWith('/config.js')) return route.fulfill({ status: 200, contentType: 'text/javascript',
+      if (configured && u.split('?')[0].endsWith('/config.js')) return route.fulfill({ status: 200, contentType: 'text/javascript',
         body: "window.POD_CONFIG = { firebase: { apiKey: 'AIzaTEST', authDomain: 'demo.firebaseapp.com', projectId: 'demo', appId: '1:2:web:3' } };" });
       if (u.startsWith('http://localhost:8765/')) return route.continue();
       return route.abort();
