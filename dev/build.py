@@ -45,13 +45,16 @@ def head(extra=''):
             '<meta name="apple-mobile-web-app-capable" content="yes">\n<title>Pod Planner</title>\n' + fonts + '\n'
             '<style>\n' + standalone_css + '</style>\n</head>\n<body>\n' + body)
 
-# Standalone (GitHub Pages): three files
+# Standalone (GitHub Pages): three files.
+# The script tags carry a version tag so a browser never pairs a new page with an old, cached app.js.
+import hashlib
+app_js = ('// Pod Planner app. You should not need to edit this file; your settings go in config.js.\n'
+          + read('backend.firebase.js') + '\n' + app)
+ver = hashlib.sha256(app_js.encode('utf-8')).hexdigest()[:10]
 write(os.path.join(OUT_DIR, 'index.html'),
       head('<meta http-equiv="Content-Security-Policy" content="' + CSP + '">\n') +
-      '\n<script src="config.js"></script>\n<script type="module" src="app.js"></script>\n</body>\n</html>\n')
-write(os.path.join(OUT_DIR, 'app.js'),
-      '// Pod Planner app. You should not need to edit this file; your settings go in config.js.\n'
-      + read('backend.firebase.js') + '\n' + app)
+      '\n<script src="config.js?v=' + ver + '"></script>\n<script type="module" src="app.js?v=' + ver + '"></script>\n</body>\n</html>\n')
+write(os.path.join(OUT_DIR, 'app.js'), app_js)
 write(os.path.join(OUT_DIR, 'config.js'), read('config.js'))
 
 # claude.ai preview page (no doctype/head/body: the Artifact tool wraps it)
