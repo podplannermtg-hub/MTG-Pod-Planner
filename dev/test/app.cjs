@@ -35,6 +35,15 @@ async function open(browser, auth, seed, extra, viewport) {
       const hit = /Columbus/.test(decodeURIComponent(u)) ? [{ lat: '39.9612', lon: '-82.9988' }] : /postalcode=43017/.test(u) ? [{ lat: '40.0992', lon: '-83.1141' }] : [];
       return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify(hit) });
     }
+    if (u.startsWith('https://api.scryfall.com/cards/search')) {
+      geo.push(decodeURIComponent(u));
+      const q = decodeURIComponent(u.split('q=')[1] || '').toLowerCase();
+      const all = [
+        { name: "Atraxa, Praetors' Voice", type_line: 'Legendary Creature — Phyrexian Angel Horror', artist: 'Victor Adame Minguez', image_uris: { art_crop: 'https://cards.scryfall.io/art_crop/front/d/0/d0d33d52.jpg?1599707796' } },
+        { name: 'Atraxa, Grand Unifier', type_line: 'Legendary Creature — Phyrexian Angel', artist: 'Marta Nael', image_uris: { art_crop: 'https://cards.scryfall.io/art_crop/front/4/5/45bd.jpg?1675' } },
+      ].filter((c) => q.includes('is:commander') && c.name.toLowerCase().includes(q.replace('is:commander ', '')));
+      return route.fulfill({ status: all.length ? 200 : 404, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify(all.length ? { data: all } : { object: 'error' }) });
+    }
     if (u.startsWith('https://api.scryfall.com/cards/named')) {
       const q = decodeURIComponent(u.split('fuzzy=')[1] || '').toLowerCase();
       const cards = {
@@ -526,7 +535,7 @@ const calls = (page) => page.evaluate(() => window.__calls);
     seed.people.me1 = { nick: 'Rob', pods: ['p1'], res: { n1: 'yes', n2: 'yes' } };
     seed.people.old1.decks = [{ id: 'z1', name: 'Sneaky', url: 'javascript:alert(1)', art: 'https://evil.example.com/x.png', b: 2 }];
     seed.people.old1.dk = { n1: ['z1'] };
-    const { page, errors } = await open(browser, { state: 'ok', uid: 'me1', email: 'me@example.com', isAdmin: false }, seed);
+    const { page, errors, geo } = await open(browser, { state: 'ok', uid: 'me1', email: 'me@example.com', isAdmin: false }, seed);
     await page.waitForSelector('article.night');
     const card = (t) => page.locator('article.night', { hasText: t });
     check('no decks yet: card points to the Me tab', (await card('Existing Night').locator('.deckpick').innerText()).includes('Me tab'));
@@ -549,6 +558,28 @@ const calls = (page) => page.evaluate(() => window.__calls);
     await page.waitForFunction(() => (window.__store.people.me1.decks || []).length === 3);
     check('unknown commander saves without art', !(await store(page)).people.me1.decks[2].art && (await page.innerText('#toast')).includes("Couldn't find that commander"));
     check('deck list shows art and bracket', (await page.locator('#deckList .deckrow').count()) === 3 && (await page.locator('#deckList .dart:not(.none)').count()) === 2 && (await page.innerText('#deckList')).includes('Bracket 4 · Optimized'));
+    // Type-ahead: suggestions from Scryfall, pick with the keyboard
+    await page.click('#addDeckBtn');
+    await page.fill('#dName', 'Big Unifier');
+    await page.locator('#dCmd').pressSequentially('atr', { delay: 30 });
+    await page.waitForSelector('#dCmdList:not([hidden]) .sopt');
+    check('typing shows matching commanders', (await page.locator('#dCmdList .sopt').count()) === 2 && (await page.innerText('#dCmdList')).includes('Atraxa, Grand Unifier')
+      && geo.some((u) => u.includes('q=is:commander atr')) && (await page.getAttribute('#dCmd', 'aria-expanded')) === 'true');
+    await page.press('#dCmd', 'ArrowDown'); await page.press('#dCmd', 'ArrowDown'); await page.press('#dCmd', 'Enter');
+    check('arrow keys and Enter pick a commander', (await page.inputValue('#dCmd')) === 'Atraxa, Grand Unifier' && await page.locator('#dCmdList').isHidden() && await page.isVisible('#deckForm'));
+    const named = geo.filter((u) => u.includes('/cards/named')).length;
+    await page.click('#deckSave');
+    await page.waitForFunction(() => (window.__store.people.me1.decks || []).some((d) => d.name === 'Big Unifier'));
+    const bu = (await store(page)).people.me1.decks.find((d) => d.name === 'Big Unifier');
+    check('picked commander saved with its art, no second lookup', bu.cmd === 'Atraxa, Grand Unifier' && bu.artist === 'Marta Nael' && bu.art.includes('45bd') && geo.filter((u) => u.includes('/cards/named')).length === named);
+    await page.click('#addDeckBtn');
+    await page.locator('#dCmd').pressSequentially('zz', { delay: 30 });
+    await page.waitForTimeout(500);
+    check('no matches: no list', await page.locator('#dCmdList').isHidden());
+    await page.click('#deckCancel');
+    await page.locator('#deckList .deckrow', { hasText: 'Big Unifier' }).locator('button', { hasText: 'Edit' }).click();
+    await page.click('#deckDelete'); await page.click('#deckDelete');
+    await page.waitForFunction(() => !window.__store.people.me1.decks.some((d) => d.name === 'Big Unifier'));
     await page.locator('#deckList .deckrow', { hasText: 'Mystery' }).locator('button', { hasText: 'Edit' }).click();
     await page.click('#deckDelete'); await page.click('#deckDelete');
     await page.waitForFunction(() => window.__store.people.me1.decks.length === 2);
