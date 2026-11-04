@@ -1,0 +1,35 @@
+name: Game night reminders
+
+on:
+  schedule:
+    # Once a day at 14:00 UTC, which is 9 AM or 10 AM in New York.
+    # GitHub can run scheduled jobs a few minutes late.
+    - cron: '0 14 * * *'
+  # Adds a "Run workflow" button on the Actions tab so you can test it right away.
+  workflow_dispatch:
+
+# This job only needs to read the repository. Nothing it runs can change your code.
+permissions:
+  contents: read
+
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Post reminders
+        run: node reminders/remind.mjs
+        env:
+          # Your page address, added to the end of each reminder.
+          PAGE_URL: PASTE_PAGE_URL
+          # Your time zone name, for example America/Chicago or America/Los_Angeles.
+          TIMEZONE: America/New_York
+          # 1 = the day before. Use '1,0' to also remind on the day of the game.
+          REMIND_DAYS: '1'
+          # Stored as a secret, not in this file. See the README.
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          # Optional. Leave this secret unset to use the Discord webhook saved in the app.
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
