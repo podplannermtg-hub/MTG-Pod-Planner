@@ -217,14 +217,64 @@ const calls = (page) => page.evaluate(() => window.__calls);
     await page.waitForTimeout(150);
     check('bring list', (await card('Existing Night').locator('.roster .bring dd').innerText()).includes('Rob: chips'));
 
+    // recurring game: every 2 weeks, 4 games
     await page.click('#callBtn');
     await page.fill('#nTitle', 'Weekly Test'); await page.fill('#nDate', plus(5));
-    await page.selectOption('#nRepeat', '4');
+    check('repeat options name the weekday', (await page.innerText('#optBiweekly')).startsWith('Every 2 weeks on ') && /Every month on the (1st|2nd|3rd|4th|last) /.test(await page.innerText('#optMonthly')));
+    check('ends hidden until repeating', !(await page.isVisible('#endsFields')));
+    await page.selectOption('#nRepeat', 'biweekly');
+    check('ends shown when repeating', await page.isVisible('#endsFields'));
+    await page.selectOption('#nEnds', 'until'); await page.fill('#nUntil', plus(1));
+    await page.click('#nightSubmit');
+    check('end date before start is refused', (await page.innerText('#toast')).includes('last date') && !(await store(page)).series);
+    await page.selectOption('#nEnds', 'count'); await page.fill('#nCount', '4');
     await page.click('#nightSubmit');
     await page.waitForSelector('#announce:not([hidden])');
     s = await store(page);
-    check('weekly nights', Object.values(s.nights).filter((n) => n.title === 'Weekly Test').length === 4);
+    const ser = Object.entries(s.series || {}).find(([, x]) => x.title === 'Weekly Test');
+    check('one recurring game stored, not copies', ser && ser[1].freq === 'biweekly' && ser[1].count === 4 && Object.values(s.nights).every((n) => n.title !== 'Weekly Test'));
+    check('announcement describes the repeat', (await page.inputValue('#announceText')).includes('Every 2 weeks on') && (await page.inputValue('#announceText')).includes('4 games'));
     await page.click('#closeAnnounce');
+    const sid = ser[0];
+    check('creator is in for the first date', s.people.me1.res[sid + '_' + plus(5).replace(/-/g, '')] === 'yes');
+    check('recurring game shows as one card', (await card('Weekly Test').count()) === 1);
+    check('card lists its four dates', (await card('Weekly Test').locator('.datechip').count()) === 4);
+    check('card says how it repeats', (await card('Weekly Test').locator('.meta').innerText()).includes('Every 2 weeks on'));
+    await card('Weekly Test').locator('.datechip').nth(1).click();
+    check('tapping a date switches the card', (await card('Weekly Test').locator('.datechip').nth(1).getAttribute('aria-pressed')) === 'true');
+    await card('Weekly Test').getByRole('button', { name: 'Maybe' }).click();
+    await page.waitForTimeout(150);
+    s = await store(page);
+    check('answers are per date', s.people.me1.res[sid + '_' + plus(19).replace(/-/g, '')] === 'maybe');
+    check('date chip shows your answer', (await card('Weekly Test').locator('.datechip').nth(1).locator('.ans-maybe').count()) === 1);
+    await card('Weekly Test').locator('button.link', { hasText: 'Skip this date' }).click();
+    await card('Weekly Test').locator('button.link', { hasText: /tap again to skip/i }).click();
+    await page.waitForTimeout(150);
+    s = await store(page);
+    check('skipping a date', (s.series[sid].skips || []).includes(plus(19)) && (await card('Weekly Test').locator('.datechip').count()) === 3);
+    await card('Weekly Test').locator('button:has-text("Apple or Outlook")').click();
+    const icsSeries = (await page.evaluate(() => window.__saved)).at(-1).text;
+    check('calendar file repeats', icsSeries.includes('RRULE:FREQ=WEEKLY;INTERVAL=2;COUNT=4') && icsSeries.includes('DTSTART:' + plus(5).replace(/-/g, '')));
+    check('Google Calendar link repeats', (await card('Weekly Test').locator('a:has-text("Google Calendar")').getAttribute('href')).includes('recur=RRULE'));
+
+    // filters
+    const heads = await page.locator('.grouphead').allInnerTexts();
+    check('games grouped by when', heads.join().toLowerCase() === 'next 7 days', heads);
+    await page.fill('#fSearch', 'weekly');
+    check('search narrows the list', (await page.locator('article.night').count()) === 1 && (await page.innerText('#fCount')).startsWith('Showing 1 of 2'));
+    await page.fill('#fSearch', 'nothing matches this');
+    check('no-match state offers to clear', (await page.locator('.empty', { hasText: 'No games match' }).count()) === 1);
+    await page.click('.empty button:has-text("Clear filters")');
+    check('clear restores everything', (await page.locator('article.night').count()) === 2 && (await page.inputValue('#fSearch')) === '');
+    await page.selectOption('#fPod', 'p2');
+    check('pod filter', (await page.locator('article.night').count()) === 0);
+    await page.selectOption('#fPod', 'p1');
+    check('pod filter shows that pod', (await page.locator('article.night').count()) === 1 && (await card('Existing Night').count()) === 1);
+    await page.selectOption('#fPod', 'all');
+    check('format filter lists formats in use', (await page.locator('#fFormat option').allInnerTexts()).join() === 'Any format,Commander');
+    await page.selectOption('#fFormat', 'Commander');
+    check('format filter', (await page.locator('article.night').count()) === 2);
+    await page.click('#fClear');
 
     await page.click('#callBtn');
     await page.click('#modeSeg button[data-m=poll]');
@@ -238,11 +288,19 @@ const calls = (page) => page.evaluate(() => window.__calls);
     await page.waitForFunction(() => !document.querySelector('article.poll'));
     check('poll locked in with vote carried over', (await card('Poll Test').getByRole('button', { name: "I'm in" }).getAttribute('aria-pressed')) === 'true');
 
-    await card('Weekly Test').first().locator('button.link', { hasText: 'Edit' }).click();
+    await card('Weekly Test').locator('button.link', { hasText: 'Edit series' }).click();
+    check('series edit form is prefilled', (await page.innerText('#formH')) === 'Edit recurring game' && (await page.inputValue('#nRepeat')) === 'biweekly' && (await page.inputValue('#nCount')) === '4');
+    await page.selectOption('#nRepeat', 'weekly');
     await page.fill('#nPlace', 'New Place'); await page.click('#nightSubmit');
     await page.waitForSelector('#announce:not([hidden])');
+    s = await store(page);
+    check('series edit saved, skips kept', s.series[sid].place === 'New Place' && s.series[sid].freq === 'weekly' && s.series[sid].skips.includes(plus(19)));
     check('edit posts update', posts.some((p) => p.startsWith('Updated: Weekly Test')));
     await page.click('#closeAnnounce');
+    await card('Weekly Test').locator('button.link', { hasText: 'End series' }).click();
+    await card('Weekly Test').locator('button.link', { hasText: /tap again to end/i }).click();
+    await page.waitForTimeout(150);
+    check('ending a future series removes it', !(await store(page)).series[sid] && (await card('Weekly Test').count()) === 0);
 
     await card('Existing Night').locator('button:has-text("Apple or Outlook")').click();
     const saved = await page.evaluate(() => window.__saved);
@@ -253,6 +311,87 @@ const calls = (page) => page.evaluate(() => window.__calls);
     await page.waitForFunction(() => window.__afterAuth === 1);
     check('sign out calls Firebase and reloads', (await calls(page)).some((c) => c[0] === 'signOut'));
     check('member: no errors', errors.length === 0, errors);
+    await page.context().close();
+  }
+
+  /* ===== pods: invite-only, Open Seats setting, invites, Discord helper ===== */
+  {
+    const seed = baseSeed();
+    seed.people.me1 = { nick: 'Rob', pods: [], res: {} };
+    seed.people.other1.pods = ['p1'];
+    seed.links = { me1: { discordId: 'd1', name: 'robplays' } };
+    const { page, errors, posts } = await open(browser, { state: 'ok', uid: 'me1', email: 'me@example.com', isAdmin: false }, seed, { __helper: true });
+    await page.waitForSelector('article.night');
+    const helperCalls = () => page.evaluate(() => window.__helperCalls || []);
+    // create an invite-only pod that keeps its nights in-house
+    await page.click('#addPodBtn');
+    await page.fill('#podName', 'cEDH Sweats');
+    await page.click('#podJoinSeg button[data-join=invite]');
+    check('invite-only explains itself', (await page.innerText('#podJoinHint')).includes('Members invite people in'));
+    await page.uncheck('#podOpenSeats');
+    await page.click('#podSubmit');
+    await page.waitForSelector('.chip:has-text("cEDH Sweats")');
+    let s = await store(page);
+    const podId = Object.keys(s.pods).find((k) => s.pods[k].name === 'cEDH Sweats');
+    check('pod saved with its settings', s.pods[podId].join === 'invite' && s.pods[podId].openSeats === false && s.pods[podId].by === 'me1');
+    check('creator joins their new pod', (s.people.me1.pods || []).includes(podId) && s.people.me1.joining === podId);
+    check('invite-only pods show a badge', (await page.innerText('.chip:has-text("cEDH Sweats")')).includes('invite'));
+    // edit it
+    await page.locator('.chipwrap', { hasText: 'cEDH Sweats' }).locator('button.podedit').click();
+    check('edit form is prefilled', (await page.inputValue('#podName')) === 'cEDH Sweats' && (await page.getAttribute('#podJoinSeg button[data-join=invite]', 'aria-pressed')) === 'true' && !(await page.isChecked('#podOpenSeats')));
+    await page.fill('#podName', 'cEDH Sweatshop'); await page.click('#podSubmit');
+    await page.waitForSelector('.chip:has-text("cEDH Sweatshop")');
+    // invite Dana
+    await page.click('#inviteOpen');
+    check('invite form offers the invite-only pod', (await page.locator('#invPod option').allInnerTexts()).join() === 'cEDH Sweatshop');
+    check('invite form offers people not in it', (await page.locator('#invWho option').allInnerTexts()).sort().join() === 'Dana,Sam');
+    await page.selectOption('#invWho', { label: 'Dana' });
+    await page.click('#inviteForm button[type=submit]');
+    await page.waitForTimeout(100);
+    s = await store(page);
+    check('invite stored with a predictable id', s.invites && s.invites[podId + '_other1'] && s.invites[podId + '_other1'].by === 'me1');
+    // night for the open pod announces through the helper, not the webhook
+    await page.click('#callBtn'); await page.fill('#nTitle', 'Helper Night');
+    await page.check('#formPods label:has-text("Tuesday Commander") input');
+    await page.click('#nightSubmit');
+    await page.waitForSelector('#announce:not([hidden])');
+    const calls1 = await helperCalls();
+    check('announcement goes through the helper', calls1.some((c) => c[0] === '/announce' && c[1].kind === 'night' && c[1].ids.length === 1) && posts.length === 0);
+    check('copy message still offered', (await page.innerText('#announceH')).includes('sent to Discord'));
+    await page.click('#closeAnnounce');
+    check('night shows it is an open table', (await page.locator('article.night', { hasText: 'Helper Night' }).locator('.meta').innerText()).includes('Open table'));
+    // profile: Discord connected, Open Seats opt-in
+    await page.click('.me-btn');
+    check('profile shows the Discord link', (await page.innerText('#discordLinkRow')).includes('Connected as robplays'));
+    await page.check('#openSeatsMe');
+    await page.waitForTimeout(1500);
+    s = await store(page);
+    check('Open Seats opt-in saved', s.people.me1.openSeats === true);
+    check('role sync requested after changes', (await helperCalls()).some((c) => c[0] === '/sync'));
+    check('pods: no errors', errors.length === 0, errors);
+    await page.context().close();
+  }
+  {
+    // Dana: sees the invite, can't join the invite-only pod without it, accepts it
+    const seed = baseSeed();
+    seed.pods.p9 = { name: 'cEDH Sweatshop', mana: 'B', by: 'me1', join: 'invite', openSeats: false };
+    seed.pods.p8 = { name: 'Secret Club', mana: 'U', by: 'me1', join: 'invite' };
+    seed.invites = { p9_other1: { podId: 'p9', uid: 'other1', by: 'old1', at: 1 } };
+    const { page, errors } = await open(browser, { state: 'ok', uid: 'other1', email: 'dana@example.com', isAdmin: false }, seed, { __helper: true });
+    await page.waitForSelector('article.night');
+    check('invitation banner shown', (await page.innerText('#invites')).includes('Sam invited you to cEDH Sweatshop'));
+    await page.click('.chip:has-text("Secret Club")');
+    check('cannot join an invite-only pod without an invite', (await page.innerText('#toast')).includes('invite only') && !((await store(page)).people.other1.pods || []).includes('p8'));
+    await page.click('#invites button:has-text("Join pod")');
+    await page.waitForTimeout(100);
+    const s = await store(page);
+    check('accepting joins the pod', s.people.other1.pods.includes('p9') && s.people.other1.joining === 'p9');
+    check('banner disappears after joining', (await page.locator('#invites .invite').count()) === 0);
+    await page.click('.me-btn');
+    await page.click('#connectDiscord');
+    await page.waitForFunction(() => !!window.__went);
+    check('Connect Discord sends you to Discord', (await page.evaluate(() => window.__went)).startsWith('https://discord.com/oauth2/authorize'));
+    check('invitee: no errors', errors.length === 0, errors);
     await page.context().close();
   }
 

@@ -9,12 +9,13 @@ require('fs').mkdirSync(SHOTS, { recursive: true });
 const pad = (n) => String(n).padStart(2, '0');
 const plus = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); };
 const seed = () => ({
-  pods: { p1: { name: 'Tuesday Commander', mana: 'G', by: 'x' }, p2: { name: 'Shop Draft Crew', mana: 'R', by: 'x' }, p3: { name: 'cEDH Sweats', mana: 'B', by: 'x' } },
+  pods: { p1: { name: 'Tuesday Commander', mana: 'G', by: 'x' }, p2: { name: 'Shop Draft Crew', mana: 'R', by: 'x' }, p3: { name: 'cEDH Sweats', mana: 'B', by: 'x', join: 'invite', openSeats: false }, p4: { name: 'Friday Night Magic Regulars', mana: 'W', by: 'me1', join: 'invite' } },
   nights: {
     n1: { title: 'Thursday Commander', date: plus(2), time: '19:00', place: "Dan's place on Elm Street", host: 'Dan', format: 'Commander', min: 4, podIds: ['p1'], note: 'Bring a deck at power level 7. Pizza on me.', by: 'me1' },
     n2: { title: 'Saturday Booster Draft at the Shop', date: plus(4), time: '14:00', place: 'The local game shop', format: 'Draft', min: 8, podIds: ['p1', 'p2'], by: 'x', series: 's1' },
     n3: { title: 'Open Night', date: plus(6), time: '', format: 'Pauper', min: 2, podIds: [], by: 'x' }
   },
+  series: { s1: { title: 'Every Other Thursday Commander League', date: plus(3), time: '19:00', format: 'Commander', min: 4, podIds: ['p1'], freq: 'biweekly', skips: [], by: 'me1', at: 1 } },
   polls: { q1: { title: 'Next Tuesday Commander', format: 'Commander', min: 4, place: "Dan's place", host: 'Dan', podIds: ['p1'], note: 'Vote for every date you can make.',
     options: [{ id: 'o0', date: plus(9), time: '19:00' }, { id: 'o1', date: plus(10), time: '19:00' }, { id: 'o2', date: plus(11), time: '14:00' }], by: 'me1', at: 1 } },
   people: {
@@ -26,6 +27,8 @@ const seed = () => ({
     e: { nick: 'Priya', ci: 'WUBRG', pods: ['p2'], res: { n2: 'yes' } }
   },
   config: { members: { emails: ['dana@example.com', 'a.really.long.email.address@example.com'], admins: [] }, discord: { webhook: 'https://discord.com/api/webhooks/1/x', ping: '' } },
+  invites: { p3_me1: { podId: 'p3', uid: 'me1', by: 'a', at: 1 } },
+  links: { me1: { discordId: 'd1', name: 'robplays' } },
   requests: { r1: { email: 'zed.with.a.long.address@example.com', name: 'Zed', at: 1 } }
 });
 
@@ -69,17 +72,18 @@ const probe = () => {
   let total = 0;
   for (const scheme of ['light', 'dark']) {
     for (const w of widths) {
-      for (const scenario of ['board', 'nameform', 'tools', 'signin']) {
+      for (const scenario of ['board', 'nameform', 'podform', 'tools', 'signin']) {
         if (scheme === 'dark' && w !== 375) continue;
         const ctx = await browser.newContext({ viewport: { width: w, height: 900 }, colorScheme: scheme, deviceScaleFactor: w <= 414 ? 2 : 1, hasTouch: w <= 414 });
         const page = await ctx.newPage();
         await page.route('**/*', (r) => r.request().url().startsWith('file://') ? r.continue() : r.abort());
         const auth = scenario === 'signin' ? { state: 'signedout' } : { state: 'ok', uid: 'me1', email: 'me@example.com', isAdmin: scenario === 'tools' };
-        await page.addInitScript(([s, a]) => { window.__seed = s; window.__auth = a; }, [seed(), auth]);
+        await page.addInitScript(([s, a]) => { window.__seed = s; window.__auth = a; window.__helper = true; }, [seed(), auth]);
         await page.goto('file://' + path.resolve(OUT));
         if (scenario === 'signin') await page.waitForSelector('#googleBtn');
         else await page.waitForSelector('article.night');
         if (scenario === 'nameform') { await page.click('.me-btn'); await page.waitForSelector('#nickForm:not([hidden])'); }
+        if (scenario === 'podform') { await page.locator('.chipwrap', { hasText: 'Friday Night' }).locator('button.podedit').click(); await page.click('#inviteOpen'); }
         if (scenario === 'tools') { await page.waitForSelector('#membersSec:not([hidden]) #requests .mrow'); await page.locator('#membersSec').scrollIntoViewIfNeeded(); }
         const issues = await page.evaluate(probe);
         total += issues.length;

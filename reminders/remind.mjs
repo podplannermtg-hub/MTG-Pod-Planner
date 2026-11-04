@@ -31,6 +31,55 @@ function fmtTime(t) {
   return (h % 12 || 12) + ':' + String(m).padStart(2, '0') + ' ' + (h >= 12 ? 'PM' : 'AM');
 }
 
+/* ---------------- recurring games (same rules as the app) ---------------- */
+const STEP = { weekly: 7, biweekly: 14 };
+const ORD = { '1': '1st', '2': '2nd', '3': '3rd', '4': '4th', '-1': 'last' };
+function utcDate(ymd) { const [y, m, d] = String(ymd).split('-').map(Number); return new Date(Date.UTC(y, m - 1, d)); }
+function ymdOf(d) { return d.toISOString().slice(0, 10); }
+function nthOfDate(ymd) { const n = Math.ceil(utcDate(ymd).getUTCDate() / 7); return n >= 5 ? -1 : n; }
+function nthWeekdayUTC(y, m, wd, nth) {
+  let d;
+  if (nth === -1) { d = new Date(Date.UTC(y, m + 1, 0)); while (d.getUTCDay() !== wd) d.setUTCDate(d.getUTCDate() - 1); return d; }
+  d = new Date(Date.UTC(y, m, 1)); while (d.getUTCDay() !== wd) d.setUTCDate(d.getUTCDate() + 1);
+  d.setUTCDate(d.getUTCDate() + 7 * (nth - 1));
+  return d.getUTCMonth() === m ? d : null;
+}
+export function seriesDates(s, from, to, max) {
+  const out = [], skips = s.skips || [], start = utcDate(s.date);
+  let n = 0, guard = 0;
+  const take = (ymd) => {
+    n++;
+    if ((s.count && n > s.count) || (s.until && ymd > s.until) || ymd > to) return false;
+    if (ymd >= from && !skips.includes(ymd)) out.push(ymd);
+    return !(max && out.length >= max);
+  };
+  if (s.freq === 'monthly') {
+    let y = start.getUTCFullYear(), m = start.getUTCMonth();
+    const nth = s.nth || nthOfDate(s.date);
+    while (guard++ < 1200) {
+      const d = nthWeekdayUTC(y, m, start.getUTCDay(), nth);
+      if (d && ymdOf(d) >= s.date && !take(ymdOf(d))) break;
+      if (++m > 11) { m = 0; y++; }
+    }
+  } else {
+    const c = new Date(start.getTime()), step = STEP[s.freq] || 7;
+    while (guard++ < 2600 && take(ymdOf(c))) c.setUTCDate(c.getUTCDate() + step);
+  }
+  return out;
+}
+export function occurrence(s, ymd) {
+  return { id: s.id + '_' + ymd.replace(/-/g, ''), date: ymd, time: s.time || '', title: s.title, place: s.place || '', host: s.host || '',
+    format: s.format, min: s.min || 4, podIds: s.podIds || [], note: s.note || '', by: s.by, series: s.id, virtual: true };
+}
+export function repeatLabel(s) {
+  const day = utcDate(s.date).toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'long' });
+  let out = s.freq === 'monthly' ? 'Monthly on the ' + ORD[String(s.nth || nthOfDate(s.date))] + ' ' + day
+    : (s.freq === 'biweekly' ? 'Every 2 weeks' : 'Every week') + ' on ' + day + 's';
+  if (s.count) out += ', ' + s.count + ' games';
+  else if (s.until) out += ', until ' + utcDate(s.until).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' });
+  return out;
+}
+
 /* ---------- answers (mirrors the page) ---------- */
 const validVote = (v) => v === 'yes' || v === 'maybe' || v === 'no';
 function answerOf(person, n) {
@@ -48,7 +97,9 @@ function invited(person, night, podIds) {
 }
 
 /* ---------- message building (pure, so it can be tested) ---------- */
-export function buildMessages({ nights, pods, people }, { today, remindDays, pageUrl }) {
+export function buildMessages({ nights, pods, people, series = [] }, { today, remindDays, pageUrl }) {
+  const last = addDays(today, Math.max(0, ...remindDays));
+  nights = nights.concat(...series.map((s) => seriesDates(s, today, last).map((d) => occurrence(s, d))));
   const podIds = new Set(pods.map((p) => p.id));
   const live = people.filter((p) => p.nick);
   const targets = new Map(remindDays.map((d) => [addDays(today, d), d]));
@@ -155,8 +206,14 @@ async function main() {
   const remindDays = (env.REMIND_DAYS || '1').split(',').map((s) => parseInt(s.trim(), 10)).filter((n) => Number.isInteger(n) && n >= 0);
   const pageUrl = env.PAGE_URL && !env.PAGE_URL.startsWith('PASTE') ? env.PAGE_URL : '';
   const token = await serviceToken(sa);
-  const [nights, pods, people] = await Promise.all(['nights', 'pods', 'people'].map((c) => readCollection(sa.project_id, token, c)));
-  const messages = buildMessages({ nights, pods, people }, { today: ymdInTz(new Date(), tz), remindDays, pageUrl });
+  // If the Discord helper is running, it sends reminders (with pod pings). Don't double up.
+  const helperState = await readDoc(sa.project_id, token, 'config/discordHelper');
+  if (helperState && helperState.remindersAt && Date.now() - helperState.remindersAt < 36 * 3600e3) {
+    console.log('The Discord helper is sending reminders, so this job has nothing to do.');
+    return;
+  }
+  const [nights, pods, people, series] = await Promise.all(['nights', 'pods', 'people', 'series'].map((c) => readCollection(sa.project_id, token, c)));
+  const messages = buildMessages({ nights, pods, people, series }, { today: ymdInTz(new Date(), tz), remindDays, pageUrl });
   if (!messages.length) { console.log('No nights to remind about today.'); return; }
   // The webhook comes from the GitHub secret if set, otherwise from the setting organizers saved in the app.
   let webhook = env.DISCORD_WEBHOOK_URL || '', pingWord = env.DISCORD_PING || '';

@@ -28,7 +28,7 @@ CSP = ("default-src 'self'; "
        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
        "font-src https://fonts.gstatic.com; "
        "img-src 'self' data: https://*.googleusercontent.com; "
-       "connect-src 'self' https://*.googleapis.com https://www.gstatic.com https://discord.com https://discordapp.com; "
+       "connect-src 'self' https://*.googleapis.com https://www.gstatic.com https://discord.com https://discordapp.com https://*.workers.dev; "
        "frame-src https://*.firebaseapp.com https://accounts.google.com https://apis.google.com; "
        "object-src 'none'; base-uri 'none'; form-action 'none'")
 

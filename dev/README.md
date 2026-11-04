@@ -18,3 +18,4 @@ Tests (need Node and Playwright with Chromium):
     node dev/test/layout.cjs dev/dist/test.html    # overflow and alignment at 320, 375, 414 and 768 pixels
     node dev/test/csp.cjs .                        # the page's security policy
     node --import ./dev/test/reminders-mock.mjs reminders/remind.mjs   # the reminder job, against fake Google and Discord
+    cp helper/worker.js /tmp/worker.mjs && node dev/test/helper.mjs /tmp/worker.mjs   # the Discord helper, against fake Firebase, Google and Discord

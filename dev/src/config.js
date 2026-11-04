@@ -7,5 +7,8 @@ window.POD_CONFIG = {
     authDomain: 'PASTE_PROJECT_ID.firebaseapp.com',
     projectId: 'PASTE_PROJECT_ID',
     appId: 'PASTE_APP_ID'
-  }
+  },
+  // Optional: your Discord helper's address, for example 'https://pod-planner-helper.yourname.workers.dev'.
+  // Leave it empty to keep using the webhook in Organizer tools.
+  helperUrl: ''
 };
