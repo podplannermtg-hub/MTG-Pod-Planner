@@ -56,6 +56,8 @@ const docOut = (path) => ({ name: 'projects/demo/databases/(default)/documents/'
 const roles = new Map([['everyone', { id: 'g1', name: '@everyone', color: 0 }]]);
 const members = new Map([['d2', new Set()]]); // Dana is already in the server
 const messages = []; let roleSeq = 100; const calls = [];
+const channels = new Map([['c1', { id: 'c1', name: 'game-nights', type: 0, parent_id: 'cat1', permission_overwrites: [] }]]);
+const privMessages = []; let chSeq = 0;
 
 let saTokens = 0;
 globalThis.fetch = async (url, init = {}) => {
@@ -77,6 +79,7 @@ globalThis.fetch = async (url, init = {}) => {
     if (method === 'DELETE') { db.delete(path); return res(200, {}); }
     if (method === 'PATCH') {
       const mask = new URLSearchParams(query || '').getAll('updateMask.fieldPaths');
+      if (new URLSearchParams(query || '').get('currentDocument.exists') === 'true' && !db.has(path)) return res(404, {});
       const incoming = decF(JSON.parse(init.body).fields || {});
       const cur = Object.assign({}, db.get(path) || {});
       (mask.length ? mask : Object.keys(incoming)).forEach((k) => { cur[k] = incoming[k]; });
@@ -99,6 +102,11 @@ globalThis.fetch = async (url, init = {}) => {
     }
     if ((m = p.match(/^\/guilds\/g1\/members\/(\w+)\/roles\/(\w+)$/))) { const s = members.get(m[1]); method === 'PUT' ? s.add(m[2]) : s.delete(m[2]); return res(204); }
     if (p === '/channels/c1/messages') { messages.push(body); return res(200, { id: 'm' + messages.length }); }
+    if (p === '/guilds/g1/channels' && method === 'GET') return res(200, [...channels.values()]);
+    if (p === '/guilds/g1/channels' && method === 'POST') { const c = Object.assign({ id: 'ch' + (++chSeq) }, body); channels.set(c.id, c); return res(200, c); }
+    if ((m = p.match(/^\/channels\/(\w+)\/messages$/))) { if (!channels.has(m[1])) return res(404, {}); privMessages.push(Object.assign({ channel: m[1] }, body)); return res(200, {}); }
+    if ((m = p.match(/^\/channels\/(\w+)\/permissions\/(\w+)$/))) { const c = channels.get(m[1]); c.permission_overwrites = (c.permission_overwrites || []).filter((o) => o.id !== m[2]).concat([Object.assign({ id: m[2] }, body)]); return res(204); }
+    if ((m = p.match(/^\/channels\/(\w+)$/))) { if (method === 'DELETE') { channels.delete(m[1]); return res(200, {}); } Object.assign(channels.get(m[1]), body); return res(200, channels.get(m[1])); }
   }
   throw new Error('unexpected fetch ' + method + ' ' + url);
 };
@@ -209,6 +217,45 @@ db.delete('pods/p2');
 await worker.scheduled({}, env, { waitUntil: (p) => p });
 await new Promise((r) => setTimeout(r, 50));
 check("a deleted pod's role is removed", !roles.has(p2Role) && !db.get('config/discordHelper').managed.includes(p2Role));
+
+// Private pods: their own role and a private channel; their games never reach the shared channel.
+db.set('privpods/pp1', { name: 'Secret Sweats', mana: 'B', by: 'u2', join: 'invite', openSeats: false });
+db.set('people/u2', Object.assign({}, db.get('people/u2'), { pods: ['pp1'] }));
+db.set('privpods/pp1/nights/x1', { title: 'Secret Night', date: day(1), time: '21:00', format: 'Commander', min: 4, bracket: 3, podIds: ['pp1'], by: 'u2', at: 1, region: 'MontCo' });
+await call('/sync', dana);
+const pp = db.get('privpods/pp1'), ch = channels.get(pp.channelId);
+check('private pod gets a role and a private channel', !!pp.roleId && !!ch && ch.name === 'secret-sweats' && ch.parent_id === 'cat1', pp);
+check('channel hidden from everyone but the pod', ch && ch.permission_overwrites.some((o) => o.id === 'g1' && o.deny === '1024')
+  && ch.permission_overwrites.some((o) => o.id === pp.roleId && (Number(o.allow) & 1024)) && !ch.permission_overwrites.some((o) => o.id === osRole));
+check('channel remembered', db.get('config/discordHelper').channels.pp1 === pp.channelId);
+db.set('people/u1', Object.assign({}, db.get('people/u1'), { pods: ['p1', 'pp1'] }));
+await call('/sync', rob);
+check('linked pod member gets the private role', members.get('d1').has(pp.roleId));
+db.set('people/u1', Object.assign({}, db.get('people/u1'), { pods: ['p1'] }));
+await call('/sync', rob);
+check('leaving the private pod removes the role', !members.get('d1').has(pp.roleId));
+const sharedBefore = messages.length;
+const pa = await call('/announce', dana, { kind: 'night', ids: ['x1'], pod: 'pp1' });
+const pm = privMessages.at(-1);
+check('private game posted in its own channel', pa.body.posted && pm && pm.channel === pp.channelId && pm.content.includes('**New game night: Secret Night**'));
+check('pings only the private pod, shows area and bracket', JSON.stringify(pm.allowed_mentions.roles) === JSON.stringify([pp.roleId]) && pm.content.includes('(MontCo)') && pm.content.includes('bracket 3 or lower'));
+check('nothing posted in the shared channel', messages.length === sharedBefore);
+check("someone outside the pod can't announce into it", (await call('/announce', rob, { kind: 'gameon', id: 'x1', pod: 'pp1' })).status === 403);
+check('private game is not found on the public board', (await call('/announce', dana, { kind: 'updated', id: 'x1' })).status === 404);
+check('a public pod id is refused as private', (await call('/announce', rob, { kind: 'night', ids: ['n1'], pod: 'p1' })).status === 404);
+const sharedB2 = messages.length, privB2 = privMessages.length;
+await worker.scheduled({}, env, { waitUntil: (p) => p });
+await new Promise((r) => setTimeout(r, 50));
+const privRem = privMessages.slice(privB2);
+check('daily: private game reminded in its channel only', privRem.length === 1 && privRem[0].content.includes('**Secret Night**') && privRem[0].channel === pp.channelId
+  && !messages.slice(sharedB2).some((m) => m.content.includes('Secret Night')));
+check('private reminder never calls @Open Seats', !privRem[0].allowed_mentions.roles.includes(osRole));
+db.set('privpods/pp1', Object.assign({}, db.get('privpods/pp1'), { name: 'Sweatshop' }));
+await call('/sync', dana);
+check('renaming the pod renames its channel', channels.get(pp.channelId).name === 'sweatshop');
+db.delete('privpods/pp1'); db.delete('privpods/pp1/nights/x1');
+await call('/sync', dana);
+check("a deleted private pod's channel is removed", !channels.has(pp.channelId) && !db.get('config/discordHelper').channels.pp1);
 
 // Unlink
 await call('/link/remove', rob);

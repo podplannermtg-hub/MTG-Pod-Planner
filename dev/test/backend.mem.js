@@ -1,22 +1,54 @@
 /* Test backend: an in-memory stand-in for Firebase. Seed with window.__seed; pick the sign-in state with window.__auth. */
 var BACKEND = (function () {
-  var store = window.__seed || {}, listeners = {}, n = 0;
+  var store = window.__seed || {}, n = 0;
   var A = window.__auth || { state: 'ok', uid: 'me1', email: 'me@example.com', isAdmin: false };
   window.__store = store; window.__calls = []; window.__afterAuth = 0;
-  function snapshot(name) {
+  // Collections are keyed by their full path ("nights", "privpods/p1/nights").
+  function uid() { return A.uid; }
+  function person() { return (store.people || {})[uid()] || {}; }
+  function inPod(id) { return (person().pods || []).indexOf(id) >= 0; }
+  function invitedTo(id) { var x = (store.invites || {})[id + '_' + uid()]; return !!x && x.ok === true; }
+  // With window.__rules on, reads the real database rules would refuse fail the same way here.
+  function canListCol(col, w) {
+    if (!window.__rules || A.isAdmin) return true;
+    if (col === 'privpods') return !!(w && w[0] === 'by' && w[2] === uid());
+    var m = /^privpods\/([^/]+)\/(nights|series|polls)$/.exec(col);
+    if (m) return inPod(m[1]);
+    return true;
+  }
+  function canReadDoc(path) {
+    if (!window.__rules || A.isAdmin) return true;
+    var parts = path.split('/');
+    if (parts[0] === 'privpods' && parts.length === 2) { var p = (store.privpods || {})[parts[1]]; return (p && p.by === uid()) || inPod(parts[1]) || invitedTo(parts[1]); }
+    if (parts[0] === 'privpods' && parts.length === 4) return inPod(parts[1]);
+    if (parts[parts.length - 2] === 'hidden') {
+      var nightCol = parts.slice(0, -3).join('/'), nid = parts[parts.length - 3];
+      if (nightCol.indexOf('privpods/') === 0 && !inPod(nightCol.split('/')[1])) return false;
+      var night = (store[nightCol] || {})[nid];
+      return !!night && (night.by === uid() || ((person().res || {})[nid] === 'yes'));
+    }
+    return true;
+  }
+  function matches(d, w) { return !w || (w[1] === '==' && d[w[0]] === w[2]); }
+  function snapshot(name, w) {
     var c = store[name] || {};
-    return { docs: Object.keys(c).map(function (id) { return { id: id, data: function () { return JSON.parse(JSON.stringify(c[id])); } }; }), metadata: { fromCache: false } };
+    return { docs: Object.keys(c).filter(function (id) { return matches(c[id], w); }).map(function (id) { return { id: id, data: function () { return JSON.parse(JSON.stringify(c[id])); } }; }), metadata: { fromCache: false } };
   }
-  var docListeners = {};
-  function docSnap(name, id) {
-    var c = store[name] || {}, has = Object.prototype.hasOwnProperty.call(c, id);
-    return { exists: has, data: function () { return has ? JSON.parse(JSON.stringify(c[id])) : undefined; }, metadata: { fromCache: false } };
+  var listeners = [], docListeners = [];
+  function split(path) { var parts = path.split('/'); return { col: parts.slice(0, -1).join('/'), id: parts[parts.length - 1] }; }
+  function docSnap(path) {
+    var s2 = split(path), c = store[s2.col] || {}, has = Object.prototype.hasOwnProperty.call(c, s2.id);
+    return { exists: has, data: function () { return has ? JSON.parse(JSON.stringify(c[s2.id])) : undefined; }, metadata: { fromCache: false } };
   }
-  function fire(name) {
-    (listeners[name] || []).forEach(function (fn) { Promise.resolve().then(function () { fn(snapshot(name)); }); });
-    Object.keys(docListeners).forEach(function (p) {
-      var parts = p.split('/');
-      if (parts[0] === name) docListeners[p].forEach(function (fn) { Promise.resolve().then(function () { fn(docSnap(parts[0], parts[1])); }); });
+  function fire(col) {
+    listeners.forEach(function (l) { if (l.col === col && l.on) Promise.resolve().then(function () { if (l.on) l.next(snapshot(col, l.w)); }); });
+    docListeners.forEach(function (l) {
+      if (split(l.path).col !== col || !l.on) return;
+      Promise.resolve().then(function () {
+        if (!l.on) return;
+        if (!canReadDoc(l.path)) { l.on = false; if (l.err) l.err({ code: 'permission-denied' }); return; }
+        l.next(docSnap(l.path));
+      });
     });
   }
   function stub(name, value) {
@@ -26,24 +58,51 @@ var BACKEND = (function () {
       return fail ? Promise.reject({ code: fail }) : Promise.resolve(typeof value === 'function' ? value.apply(null, arguments) : value);
     };
   }
+  function colListen(name, w, next, err) {
+    window.__listens = (window.__listens || []).concat([[name].concat(w || [])]);
+    if (!canListCol(name, w)) { Promise.resolve().then(function () { err && err({ code: 'permission-denied' }); }); return function () {}; }
+    var l = { col: name, w: w, next: next, on: true };
+    listeners.push(l);
+    Promise.resolve().then(function () { if (l.on) next(snapshot(name, w)); });
+    return function () { l.on = false; };
+  }
+  function write(op, path, d) {
+    var s2 = split(path);
+    if (op === 'set') (store[s2.col] = store[s2.col] || {})[s2.id] = JSON.parse(JSON.stringify(d));
+    else if (op === 'update') { if (!store[s2.col] || !store[s2.col][s2.id]) throw { code: 'not-found' }; Object.assign(store[s2.col][s2.id], JSON.parse(JSON.stringify(d))); }
+    else if (store[s2.col]) delete store[s2.col][s2.id];
+    return s2.col;
+  }
   var db = {
     collection: function (name) {
       return {
-        onSnapshot: function (next) { (listeners[name] = listeners[name] || []).push(next); Promise.resolve().then(function () { next(snapshot(name)); }); return function () {}; },
+        onSnapshot: function (next, err) { return colListen(name, null, next, err); },
+        where: function (f, op, v) { return { onSnapshot: function (next, err) { return colListen(name, [f, op, v], next, err); } }; },
         add: function (data) { var id = 'auto' + (++n); (store[name] = store[name] || {})[id] = JSON.parse(JSON.stringify(data)); fire(name); return Promise.resolve({ id: id }); }
       };
     },
-    doc: function (path) {
-      var parts = path.split('/'), name = parts[0], id = parts[1];
+    batch: function () {
+      var ops = [];
       return {
-        set: function (d) { (store[name] = store[name] || {})[id] = JSON.parse(JSON.stringify(d)); fire(name); return Promise.resolve(); },
-        update: function (d) { if (!store[name] || !store[name][id]) return Promise.reject({ code: 'not-found' }); Object.assign(store[name][id], JSON.parse(JSON.stringify(d))); fire(name); return Promise.resolve(); },
-        delete: function () { if (store[name]) delete store[name][id]; fire(name); return Promise.resolve(); },
+        set: function (p, d) { ops.push(['set', p, d]); }, update: function (p, d) { ops.push(['update', p, d]); }, delete: function (p) { ops.push(['delete', p]); },
+        commit: function () {
+          window.__batches = (window.__batches || 0) + 1;
+          try { var cols = ops.map(function (o) { return write(o[0], o[1], o[2]); }); cols.filter(function (c, i) { return cols.indexOf(c) === i; }).forEach(fire); return Promise.resolve(); }
+          catch (e) { return Promise.reject(e); }
+        }
+      };
+    },
+    doc: function (path) {
+      return {
+        set: function (d) { fire(write('set', path, d)); return Promise.resolve(); },
+        update: function (d) { try { fire(write('update', path, d)); return Promise.resolve(); } catch (e) { return Promise.reject(e); } },
+        delete: function () { fire(write('delete', path)); return Promise.resolve(); },
         onSnapshot: function (next, err) {
-          if ((window.__denyDocs || []).indexOf(path) >= 0) { Promise.resolve().then(function () { err && err({ code: 'permission-denied' }); }); return function () {}; }
-          (docListeners[path] = docListeners[path] || []).push(next);
-          Promise.resolve().then(function () { next(docSnap(name, id)); });
-          return function () {};
+          if ((window.__denyDocs || []).indexOf(path) >= 0 || !canReadDoc(path)) { Promise.resolve().then(function () { err && err({ code: 'permission-denied' }); }); return function () {}; }
+          var l = { path: path, next: next, err: err, on: true };
+          docListeners.push(l);
+          Promise.resolve().then(function () { if (l.on) next(docSnap(path)); });
+          return function () { l.on = false; };
         }
       };
     }

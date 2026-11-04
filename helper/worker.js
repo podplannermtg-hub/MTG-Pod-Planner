@@ -5,6 +5,8 @@
 //   - Roles: creates a Discord role for every pod (plus "Open Seats") and keeps each player's roles matching the app.
 //   - Announcements: posts new nights, polls, locked-in dates, changes and "Game on", pinging only the pods involved.
 //   - Daily (cron): re-syncs everyone's roles and posts reminders. Short nights call @Open Seats if their pods allow it.
+//   - Private pods: each gets a private channel only its role can see. Its games, reminders and "Game on" go there,
+//     never to the shared channel. (The bot needs the Manage Channels and Read Message History permissions.)
 //
 // Settings (Cloudflare dashboard > your Worker > Settings > Variables and Secrets). See SETUP.md for where each comes from.
 //   APP_URL                 your Pod Planner page, e.g. https://you.github.io/MTG-Pod-Planner/
@@ -23,6 +25,7 @@ const API = 'https://discord.com/api/v10';
 const GOOGLE_TOKEN = 'https://oauth2.googleapis.com/token';
 const JWKS_URL = 'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com';
 const SILENT = 4096; // Discord message flag: deliver without a notification
+const VIEW = 1024, SEND = 2048, HISTORY = 65536; // Discord permission bits
 const MANA_COLOR = { W: 0xE9D88E, U: 0x3B7DBF, B: 0x3A383E, R: 0xD1523D, G: 0x3C9A59 };
 
 // Setting names are matched without regard to case, so "App_URL" works the same as "APP_URL".
@@ -186,7 +189,9 @@ async function hmac(env, text) {
 // Makes sure every pod has a role (named after the pod), plus "Open Seats", and removes roles of deleted pods.
 async function ensureRoles(env) {
   const G = env.DISCORD_GUILD_ID;
-  const [pods, state0, guildRoles] = await Promise.all([fsList(env, 'pods'), fsGet(env, 'config/discordHelper'), dc(env, 'GET', '/guilds/' + G + '/roles')]);
+  const [pub, priv, state0, guildRoles] = await Promise.all([fsList(env, 'pods'), fsList(env, 'privpods'), fsGet(env, 'config/discordHelper'), dc(env, 'GET', '/guilds/' + G + '/roles')]);
+  const pods = pub.map((p) => Object.assign(p, { path: 'pods/' + p.id }))
+    .concat(priv.map((p) => Object.assign(p, { path: 'privpods/' + p.id, private: true })));
   const state = state0 || {};
   const have = new Map(guildRoles.map((r) => [r.id, r]));
   const managed = new Set(state.managed || []);
@@ -196,10 +201,10 @@ async function ensureRoles(env) {
       const role = await dc(env, 'POST', '/guilds/' + G + '/roles', { name: p.name, color, mentionable: false, hoist: false });
       have.set(role.id, role);
       p.roleId = role.id;
-      await fsSet(env, 'pods/' + p.id, { roleId: role.id, roleName: p.name });
+      await fsSet(env, p.path, { roleId: role.id, roleName: p.name }, true);
     } else if (have.get(p.roleId).name !== p.name || have.get(p.roleId).color !== color) {
       await dc(env, 'PATCH', '/guilds/' + G + '/roles/' + p.roleId, { name: p.name, color });
-      await fsSet(env, 'pods/' + p.id, { roleName: p.name });
+      await fsSet(env, p.path, { roleName: p.name }, true);
     }
     managed.add(p.roleId);
   }
@@ -212,8 +217,50 @@ async function ensureRoles(env) {
     if (have.has(rid)) await dc(env, 'DELETE', '/guilds/' + G + '/roles/' + rid).catch((e) => console.log('delete role', e.message));
     managed.delete(rid);
   }
+  const channels = await ensureChannels(env, pods, state.channels || {});
   const out = { pods, openSeatsRoleId: openSeats, managed: [...managed] };
-  await fsSet(env, 'config/discordHelper', { openSeatsRoleId: openSeats, managed: out.managed });
+  await fsSet(env, 'config/discordHelper', { openSeatsRoleId: openSeats, managed: out.managed, channels });
+  return out;
+}
+// A private channel for every private pod: hidden from everyone except that pod's role (and the bot).
+// It sits in the same category as the shared channel. Channels of deleted pods are removed.
+function channelName(name) { return String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 90) || 'private-pod'; }
+let botId = '';
+async function ensureChannels(env, pods, known) {
+  const G = env.DISCORD_GUILD_ID;
+  const priv = pods.filter((p) => p.private && p.roleId);
+  const allIds = new Set(pods.map((p) => p.id));
+  const out = {};
+  if (!priv.length && !Object.keys(known).length) return out;
+  const list = await dc(env, 'GET', '/guilds/' + G + '/channels');
+  const byId = new Map(list.map((c) => [c.id, c]));
+  const shared = byId.get(env.DISCORD_CHANNEL_ID);
+  if (!botId) botId = (await dc(env, 'GET', '/users/@me')).id;
+  const allow = String(VIEW | SEND | HISTORY);
+  for (const p of priv) {
+    let ch = p.channelId && byId.get(p.channelId);
+    try {
+      if (!ch) {
+        ch = await dc(env, 'POST', '/guilds/' + G + '/channels', {
+          name: channelName(p.name), type: 0, parent_id: (shared && shared.parent_id) || undefined,
+          topic: 'Private games for ' + p.name + ' (Pod Planner). Only this pod can see this channel.',
+          permission_overwrites: [{ id: G, type: 0, deny: String(VIEW) }, { id: p.roleId, type: 0, allow }, { id: botId, type: 1, allow }]
+        });
+        await fsSet(env, p.path, { channelId: ch.id }, true);
+      } else {
+        if (ch.name !== channelName(p.name)) await dc(env, 'PATCH', '/channels/' + ch.id, { name: channelName(p.name) });
+        const ow = (ch.permission_overwrites || []).find((o) => o.id === p.roleId);
+        if (!ow) await dc(env, 'PUT', '/channels/' + ch.id + '/permissions/' + p.roleId, { type: 0, allow, deny: '0' });
+      }
+      p.channelId = ch.id; out[p.id] = ch.id;
+    } catch (e) { console.log('channel', p.id, e.message); }
+  }
+  // Pods that were deleted: remove their private channel. (A pod made public again keeps its old channel.)
+  for (const [podId, cid] of Object.entries(known)) {
+    if (out[podId]) continue;
+    if (allIds.has(podId)) { out[podId] = cid; continue; }
+    if (byId.has(cid)) await dc(env, 'DELETE', '/channels/' + cid).catch((e) => console.log('delete channel', e.message));
+  }
   return out;
 }
 // Gives a linked player exactly the managed roles they should have, and removes the rest.
@@ -262,6 +309,19 @@ async function announce(env, user, body) {
   const ok = (by) => by === user.uid || user.isAdmin;
   const roles = await ensureRoles(env);
   const podMap = new Map(roles.pods.map((p) => [p.id, p]));
+  // A private pod's games are read from inside the pod and posted only in its own channel.
+  let base = '', channel = env.DISCORD_CHANNEL_ID;
+  if (body && body.pod) {
+    const pod = podMap.get(String(body.pod));
+    if (!pod || !pod.private) throw new HttpError(404, 'Pod not found.');
+    if (!user.isAdmin) {
+      const person = await fsGet(env, 'people/' + user.uid);
+      if (!person || !(person.pods || []).includes(pod.id)) throw new HttpError(403, "You're not in that pod.");
+    }
+    if (!pod.channelId) return { posted: false, reason: 'no private channel yet' };
+    base = 'privpods/' + pod.id + '/'; channel = pod.channelId;
+  }
+  const post = (env2, lines, mentions, opts) => postTo(env2, lines, mentions, Object.assign({ channel }, opts || {}));
   const page = String(env.APP_URL).split('#')[0];
   const once = async (key, minutes) => {
     const m = await fsGet(env, 'announced/' + key);
@@ -273,7 +333,7 @@ async function announce(env, user, body) {
   if (kind === 'night') {
     const ids = Array.isArray(body.ids) ? body.ids.slice(0, 12).map(String) : [];
     if (!ids.length) throw new HttpError(400, 'Missing night.');
-    const nights = await Promise.all(ids.map((id) => fsGet(env, 'nights/' + id)));
+    const nights = await Promise.all(ids.map((id) => fsGet(env, base + 'nights/' + id)));
     if (nights.some((n) => !n)) throw new HttpError(404, 'Night not found.');
     if (!nights.every((n) => ok(n.by))) throw new HttpError(403, 'Only the person who called it can announce it.');
     if (!(await once('night_' + ids[0]))) return { posted: false, reason: 'already announced' };
@@ -284,7 +344,7 @@ async function announce(env, user, body) {
     return post(env, lines, mentionsFor(n, podMap, roles.openSeatsRoleId), { night: n });
   }
   if (kind === 'series' || kind === 'seriesUpdated') {
-    const s = await fsGet(env, 'series/' + String(body.id || ''));
+    const s = await fsGet(env, base + 'series/' + String(body.id || ''));
     if (!s) throw new HttpError(404, 'Recurring game not found.');
     if (!ok(s.by)) throw new HttpError(403, 'Only the person who set it up can announce it.');
     const isNew = kind === 'series';
@@ -295,7 +355,7 @@ async function announce(env, user, body) {
     return post(env, lines, mentionsFor(s, podMap, roles.openSeatsRoleId), {});
   }
   if (kind === 'poll') {
-    const p = await fsGet(env, 'polls/' + String(body.id || ''));
+    const p = await fsGet(env, base + 'polls/' + String(body.id || ''));
     if (!p) throw new HttpError(404, 'Poll not found.');
     if (!ok(p.by)) throw new HttpError(403, 'Only the person who posted it can announce it.');
     if (!(await once('poll_' + body.id))) return { posted: false, reason: 'already announced' };
@@ -307,7 +367,7 @@ async function announce(env, user, body) {
     return post(env, lines, mentionsFor(p, podMap, roles.openSeatsRoleId), {});
   }
   if (kind === 'locked' || kind === 'updated' || kind === 'gameon') {
-    const n = (await fsGet(env, 'nights/' + String(body.id || ''))) || (kind === 'gameon' ? await seriesOccurrence(env, String(body.id || '')) : null);
+    const n = (await fsGet(env, base + 'nights/' + String(body.id || ''))) || (kind === 'gameon' ? await seriesOccurrence(env, String(body.id || ''), base) : null);
     if (!n) throw new HttpError(404, 'Night not found.');
     if (kind === 'locked') {
       if (!n.fromPoll || !ok(n.by)) throw new HttpError(403, 'Only the person who locked it in can announce it.');
@@ -332,10 +392,10 @@ async function announce(env, user, body) {
 }
 // Pings the roles of the pods a night or poll calls. A night open to everyone (no pods) pings @Open Seats.
 // "<seriesId>_<YYYYMMDD>" -> that date of the recurring game, if it really is one of its dates.
-async function seriesOccurrence(env, id) {
+async function seriesOccurrence(env, id, base) {
   const m = /^([A-Za-z0-9]+)_(\d{4})(\d{2})(\d{2})$/.exec(id);
   if (!m) return null;
-  const s = await fsGet(env, 'series/' + m[1]);
+  const s = await fsGet(env, (base || '') + 'series/' + m[1]);
   const ymd = m[2] + '-' + m[3] + '-' + m[4];
   return s && seriesDates(s, ymd, ymd).length ? occurrence(s, ymd) : null;
 }
@@ -344,10 +404,11 @@ function mentionsFor(item, podMap, openSeatsRoleId) {
   const roles = pods.length ? pods.filter((p) => p.roleId).map((p) => p.roleId) : [openSeatsRoleId].filter(Boolean);
   return { roles: [...new Set(roles)], everyone: false };
 }
-async function post(env, lines, mentions, opts) {
+function post(env, lines, mentions, opts) { return postTo(env, lines, mentions, opts); }
+async function postTo(env, lines, mentions, opts) {
   const tags = mentions.roles.map((r) => '<@&' + r + '>');
   const content = ((tags.length ? tags.join(' ') + '\n' : '') + lines.filter(Boolean).join('\n')).slice(0, 1900);
-  await dc(env, 'POST', '/channels/' + env.DISCORD_CHANNEL_ID + '/messages', {
+  await dc(env, 'POST', '/channels/' + ((opts && opts.channel) || env.DISCORD_CHANNEL_ID) + '/messages', {
     content,
     allowed_mentions: { parse: [], roles: mentions.roles },
     flags: opts && opts.silent ? SILENT : 0
@@ -369,13 +430,20 @@ async function daily(env) {
   const podMap = new Map(roles.pods.map((p) => [p.id, p]));
   const page = String(env.APP_URL).split('#')[0];
   const last = addDays(today, Math.max(0, ...days));
-  const nights = stored.concat(...seriesList.map((s) => seriesDates(s, today, last).map((d) => occurrence(s, d))));
+  const expand = (list, series, channel) => list.concat(...series.map((s) => seriesDates(s, today, last).map((d) => occurrence(s, d))))
+    .map((n) => Object.assign(n, { channel }));
+  let nights = expand(stored, seriesList, env.DISCORD_CHANNEL_ID);
+  // Each private pod's games are reminded in that pod's own channel.
+  for (const p of roles.pods.filter((x) => x.private && x.channelId)) {
+    const [pn, ps] = await Promise.all([fsList(env, 'privpods/' + p.id + '/nights'), fsList(env, 'privpods/' + p.id + '/series')]);
+    nights = nights.concat(expand(pn, ps, p.channelId));
+  }
   let sent = 0;
   for (const d of days) {
     const date = addDays(today, d);
     for (const n of nights.filter((x) => x.date === date).sort((a, b) => (a.time || '').localeCompare(b.time || ''))) {
       const msg = reminderFor(n, d, live, podMap, roles.openSeatsRoleId, page);
-      await post(env, msg.lines, { roles: msg.roles, everyone: false }, { silent: msg.silent }).catch((e) => console.log('remind', e.message));
+      await post(env, msg.lines, { roles: msg.roles, everyone: false }, { silent: msg.silent, channel: n.channel }).catch((e) => console.log('remind', e.message));
       sent++;
     }
   }
@@ -478,14 +546,17 @@ function invited(person, n, podIds) {
 }
 function details(n, podMap) {
   const lines = [whenLine(n)];
-  const meta = [n.format, 'need ' + (n.min || 4) + ' players', n.host ? 'host: ' + n.host : ''].filter(Boolean);
+  const meta = [n.format, n.format === 'Commander' && n.bracket ? 'bracket ' + n.bracket + ' or lower' : '', 'need ' + (n.min || 4) + ' players', n.host ? 'host: ' + n.host : ''].filter(Boolean);
   lines.push(meta.join(', '));
   const pods = (n.podIds || []).map((id) => podMap.get(id)).filter(Boolean);
   if (pods.length) lines.push('Pods: ' + pods.map((p) => p.name).join(', ') + (pods.some((p) => p.openSeats === false) ? ' (pod only)' : ' (open table)'));
   if (n.note) lines.push(n.note);
   return lines;
 }
-function whenLine(n) { return fmtDate(n.date) + (n.time ? ' at ' + fmtTime(n.time) : '') + (n.place ? ', ' + n.place : ''); }
+const REGIONS = ['Upper Bucks', 'Central Bucks', 'Lower Bucks', 'MontCo', 'North Jersey', 'South Jersey'];
+function whenLine(n) {
+  return fmtDate(n.date) + (n.time ? ' at ' + fmtTime(n.time) : '') + (n.place ? ', ' + n.place : '') + (REGIONS.includes(n.region) ? ' (' + n.region + ')' : '');
+}
 function fmtDate(ymd) {
   const [y, m, d] = String(ymd).split('-').map(Number);
   return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'long', month: 'short', day: 'numeric' });
@@ -574,9 +645,10 @@ async function fsList(env, col) {
   return out;
 }
 // Merges the given fields into the document (creating it if needed).
-async function fsSet(env, path, obj) {
-  const mask = Object.keys(obj).map((k) => 'updateMask.fieldPaths=' + encodeURIComponent(k)).join('&');
+async function fsSet(env, path, obj, mustExist) {
+  const mask = Object.keys(obj).map((k) => 'updateMask.fieldPaths=' + encodeURIComponent(k)).join('&') + (mustExist ? '&currentDocument.exists=true' : '');
   const r = await fsFetch(env, path + '?' + mask, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fields: encodeFields(obj) }) });
+  if (mustExist && (r.status === 404 || r.status === 400)) return; // the document was deleted meanwhile
   if (!r.ok) throw new Error('Writing ' + path + ': ' + r.status + ' ' + (await r.text()).slice(0, 200));
 }
 async function fsDelete(env, path) {

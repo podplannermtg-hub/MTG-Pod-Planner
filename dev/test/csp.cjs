@@ -16,7 +16,7 @@ const STUBS = {
     'export async function signInWithEmailAndPassword(){}', 'export async function createUserWithEmailAndPassword(){ return { user: {} }; }',
     'export async function sendEmailVerification(){}', 'export async function sendPasswordResetEmail(){}', 'export async function signOut(){}'
   ].join('\n'),
-  'firebase-firestore.js': ['getFirestore', 'collection', 'doc', 'getDoc', 'onSnapshot', 'addDoc', 'setDoc', 'updateDoc', 'deleteDoc']
+  'firebase-firestore.js': ['getFirestore', 'collection', 'doc', 'getDoc', 'onSnapshot', 'addDoc', 'setDoc', 'updateDoc', 'deleteDoc', 'query', 'where', 'writeBatch']
     .map((n) => 'export function ' + n + '(){ return {}; }').join('\n')
 };
 
