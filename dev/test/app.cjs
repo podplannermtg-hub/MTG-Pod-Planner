@@ -35,6 +35,16 @@ async function open(browser, auth, seed, extra, viewport) {
       const hit = /Columbus/.test(decodeURIComponent(u)) ? [{ lat: '39.9612', lon: '-82.9988' }] : /postalcode=43017/.test(u) ? [{ lat: '40.0992', lon: '-83.1141' }] : [];
       return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify(hit) });
     }
+    if (u.startsWith('https://api.scryfall.com/cards/named')) {
+      const q = decodeURIComponent(u.split('fuzzy=')[1] || '').toLowerCase();
+      const cards = {
+        atraxa: { name: "Atraxa, Praetors' Voice", artist: 'Victor Adame Minguez', image_uris: { art_crop: 'https://cards.scryfall.io/art_crop/front/d/0/d0d33d52.jpg?1599707796' } },
+        krenko: { name: 'Krenko, Mob Boss', card_faces: [{ artist: 'Karl Kopinski', image_uris: { art_crop: 'https://cards.scryfall.io/art_crop/front/c/d/cd9fec9d.jpg?1562' } }] },
+      };
+      const c = cards[q];
+      return route.fulfill({ status: c ? 200 : 404, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify(c || { object: 'error' }) });
+    }
+    if (u.startsWith('https://cards.scryfall.io/')) return route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64') });
     if (u.startsWith('file://')) return route.continue();
     return route.abort();
   });
@@ -496,6 +506,72 @@ const calls = (page) => page.evaluate(() => window.__calls);
     check('current location: distance from here, not saved', (await card('Brewery Night').locator('.distchip').innerText()) === 'Under 1 mi' && !('lat' in (await store(page)).people.me1));
     await page.screenshot({ path: path.join(SHOTS, 'shot-places.png'), fullPage: false });
     check('places: no errors', errors.length === 0, errors);
+    await page.context().close();
+  }
+
+  /* ===== decks: profile decklists, bringing decks, brackets, commander art ===== */
+  {
+    const seed = baseSeed();
+    seed.nights.n1.bracket = 3; seed.nights.n1.min = 4;
+    seed.nights.n2 = { title: 'Draft Night', date: plus(4), time: '18:00', format: 'Draft', min: 4, podIds: [], by: 'x', at: 2 };
+    seed.people.me1 = { nick: 'Rob', pods: ['p1'], res: { n1: 'yes', n2: 'yes' } };
+    seed.people.old1.decks = [{ id: 'z1', name: 'Sneaky', url: 'javascript:alert(1)', art: 'https://evil.example.com/x.png', b: 2 }];
+    seed.people.old1.dk = { n1: ['z1'] };
+    const { page, errors } = await open(browser, { state: 'ok', uid: 'me1', email: 'me@example.com', isAdmin: false }, seed);
+    await page.waitForSelector('article.night');
+    const card = (t) => page.locator('article.night', { hasText: t });
+    check('no decks yet: card points to the Me tab', (await card('Existing Night').locator('.deckpick').innerText()).includes('Me tab'));
+    await tab(page, 'me');
+    await page.click('#addDeckBtn');
+    await page.fill('#dName', 'Superfriends'); await page.fill('#dCmd', 'atraxa'); await page.selectOption('#dBracket', '4'); await page.fill('#dUrl', 'moxfield.com/decks/abc123');
+    await page.click('#deckSave');
+    await page.waitForFunction(() => (window.__store.people.me1.decks || []).length === 1);
+    let s = await store(page);
+    const d1 = s.people.me1.decks[0];
+    check('deck saved with commander, art, artist and a safe link', d1.cmd === "Atraxa, Praetors' Voice" && d1.art.startsWith('https://cards.scryfall.io/art_crop/') && d1.artist === 'Victor Adame Minguez' && d1.url === 'https://moxfield.com/decks/abc123' && d1.b === 4, d1);
+    await page.click('#addDeckBtn');
+    await page.fill('#dName', 'Goblins'); await page.fill('#dCmd', 'krenko'); await page.selectOption('#dBracket', '2');
+    await page.click('#deckSave');
+    await page.waitForFunction(() => (window.__store.people.me1.decks || []).length === 2);
+    check('double-faced style art found', (await store(page)).people.me1.decks[1].artist === 'Karl Kopinski');
+    await page.click('#addDeckBtn');
+    await page.fill('#dName', 'Mystery'); await page.fill('#dCmd', 'nobody at all');
+    await page.click('#deckSave');
+    await page.waitForFunction(() => (window.__store.people.me1.decks || []).length === 3);
+    check('unknown commander saves without art', !(await store(page)).people.me1.decks[2].art && (await page.innerText('#toast')).includes("Couldn't find that commander"));
+    check('deck list shows art and bracket', (await page.locator('#deckList .deckrow').count()) === 3 && (await page.locator('#deckList .dart:not(.none)').count()) === 2 && (await page.innerText('#deckList')).includes('Bracket 4 · Optimized'));
+    await page.locator('#deckList .deckrow', { hasText: 'Mystery' }).locator('button', { hasText: 'Edit' }).click();
+    await page.click('#deckDelete'); await page.click('#deckDelete');
+    await page.waitForFunction(() => window.__store.people.me1.decks.length === 2);
+    check('remove a deck (two taps)', true);
+    await tab(page, 'games');
+    const c1 = card('Existing Night');
+    check('bracket limit shown on the card', (await c1.locator('.typeline').innerText()).includes('Bracket 3 or lower'));
+    check('deck over the limit flagged red, not blocked', (await c1.locator('.deckchip', { hasText: 'Superfriends' }).getAttribute('class')).includes('over') && !(await c1.locator('.deckchip', { hasText: 'Goblins' }).getAttribute('class')).includes('over'));
+    await c1.locator('.deckchip', { hasText: 'Superfriends' }).click();
+    await page.waitForFunction(() => (window.__store.people.me1.dk || {}).n1);
+    check('bringing a deck is saved per game', JSON.stringify((await store(page)).people.me1.dk.n1) === JSON.stringify([d1.id]));
+    const mySeat = c1.locator('.seat.yes[title^="Rob"]');
+    check('seat shows commander art', (await mySeat.getAttribute('class')).includes('hasart') && (await mySeat.evaluate((e) => e.style.backgroundImage)).includes('cards.scryfall.io'));
+    check('seat ringed red when over the limit', (await mySeat.getAttribute('class')).includes('over'));
+    check('artist credited on the card', (await c1.locator('.artcredit').innerText()) === 'Art: Victor Adame Minguez');
+    check('decks listed in details, over limit marked', (await c1.locator('.roster .decks').innerText()).includes('Superfriends') && (await c1.locator('.roster .decks .over').count()) === 1);
+    const sam = c1.locator('.seat.yes[title^="Sam"]');
+    check('unsafe art from another player is ignored', !(await sam.getAttribute('class')).includes('hasart'));
+    check('unsafe deck link is not a link', (await c1.locator('.roster .decks a', { hasText: 'Sneaky' }).count()) === 0 && (await c1.locator('.roster .decks').innerText()).includes('Sneaky'));
+    check('Draft night hides brackets', (await card('Draft Night').locator('.deckchip').count()) === 2 && (await card('Draft Night').locator('.bchip').count()) === 0 && !(await card('Draft Night').locator('.typeline').innerText()).includes('Bracket'));
+    await page.click('#callBtn');
+    check('bracket limit offered for Commander', await page.isVisible('#nBracket'));
+    await page.selectOption('#nFormat', 'Draft');
+    check('bracket limit hidden for Draft', !(await page.isVisible('#nBracket')));
+    await page.selectOption('#nFormat', 'Commander'); await page.selectOption('#nBracket', '2');
+    await page.fill('#nTitle', 'Low Power Night'); await page.click('#nightSubmit');
+    await page.waitForFunction(() => Object.values(window.__store.nights).some((n) => n.title === 'Low Power Night'));
+    check('night saves its bracket limit', Object.values((await store(page)).nights).find((n) => n.title === 'Low Power Night').bracket === 2);
+    await page.click('#closeAnnounce');
+    await page.screenshot({ path: path.join(SHOTS, 'shot-decks.png'), fullPage: true });
+    // Scryfall answers 404 for an unknown commander; the browser logs that, and the app handles it.
+    check('decks: no errors', errors.filter((e) => !e.includes('status of 404')).length === 0, errors);
     await page.context().close();
   }
 

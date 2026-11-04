@@ -11,7 +11,7 @@ const plus = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d
 const seed = () => ({
   pods: { p1: { name: 'Tuesday Commander', mana: 'G', by: 'x' }, p2: { name: 'Shop Draft Crew', mana: 'R', by: 'x' }, p3: { name: 'cEDH Sweats', mana: 'B', by: 'x', join: 'invite', openSeats: false }, p4: { name: 'Friday Night Magic Regulars', mana: 'W', by: 'me1', join: 'invite' } },
   nights: {
-    n1: { title: 'Thursday Commander', date: plus(2), time: '19:00', place: "Dan's place on Elm Street", address: '1234 Longname Boulevard Northwest, Upper Arlington, OH 43221', lat: 40.0257, lng: -83.0623, host: 'Dan', format: 'Commander', min: 4, podIds: ['p1'], note: 'Bring a deck at power level 7. Pizza on me.', by: 'me1' },
+    n1: { title: 'Thursday Commander', bracket: 3, date: plus(2), time: '19:00', place: "Dan's place on Elm Street", address: '1234 Longname Boulevard Northwest, Upper Arlington, OH 43221', lat: 40.0257, lng: -83.0623, host: 'Dan', format: 'Commander', min: 4, podIds: ['p1'], note: 'Bring a deck at power level 7. Pizza on me.', by: 'me1' },
     n2: { title: 'Saturday Booster Draft at the Shop', date: plus(4), time: '14:00', place: 'The local game shop', format: 'Draft', min: 8, podIds: ['p1', 'p2'], by: 'x', series: 's1' },
     n3: { title: 'Open Night', date: plus(6), time: '', format: 'Pauper', min: 2, podIds: [], by: 'x' }
   },
@@ -19,7 +19,7 @@ const seed = () => ({
   polls: { q1: { title: 'Next Tuesday Commander', format: 'Commander', min: 4, place: "Dan's place", host: 'Dan', podIds: ['p1'], note: 'Vote for every date you can make.',
     options: [{ id: 'o0', date: plus(9), time: '19:00' }, { id: 'o1', date: plus(10), time: '19:00' }, { id: 'o2', date: plus(11), time: '14:00' }], by: 'me1', at: 1 } },
   people: {
-    me1: { nick: 'Rob', area: 'Dublin, OH', alat: 40.1, alng: -83.11, ci: 'UR', pods: ['p1', 'p2'], res: { n1: 'yes', n2: 'maybe' }, bring: { n1: 'Chips and a spare playmat' }, pv: { q1: { o0: 'yes' } } },
+    me1: { nick: 'Rob', area: 'Dublin, OH', alat: 40.1, alng: -83.11, decks: [{ id: 'd1', name: 'Superfriends Planeswalker Tribal', cmd: "Atraxa, Praetors' Voice", b: 4, url: 'https://moxfield.com/decks/abc', art: 'https://cards.scryfall.io/art_crop/front/a/1.jpg', artist: 'Victor Adame Minguez' }, { id: 'd2', name: 'Goblins', cmd: 'Krenko, Mob Boss', b: 2, art: 'https://cards.scryfall.io/art_crop/front/a/2.jpg', artist: 'Karl Kopinski' }], dk: { n1: ['d1', 'd2'] }, ci: 'UR', pods: ['p1', 'p2'], res: { n1: 'yes', n2: 'maybe' }, bring: { n1: 'Chips and a spare playmat' }, pv: { q1: { o0: 'yes' } } },
     a: { nick: 'Samantha', ci: 'RG', pods: ['p1'], res: { n1: 'yes', n2: 'yes' }, pv: { q1: { o0: 'yes', o1: 'yes' } } },
     b: { nick: 'Dana', ci: 'WU', pods: ['p1'], res: { n1: 'maybe' }, pv: { q1: { o1: 'yes', o2: 'maybe' } } },
     c: { nick: 'Lee', ci: 'B', pods: ['p1', 'p2'], res: { n1: 'no' } },
@@ -76,7 +76,7 @@ const probe = () => {
         if (scheme === 'dark' && w !== 375 && w !== 1440) continue;
         const ctx = await browser.newContext({ viewport: { width: w, height: 900 }, colorScheme: scheme, deviceScaleFactor: w <= 414 ? 2 : 1, hasTouch: w <= 414 });
         const page = await ctx.newPage();
-        await page.route('**/*', (r) => r.request().url().startsWith('file://') ? r.continue() : r.abort());
+        await page.route('**/*', (r) => r.request().url().startsWith('https://cards.scryfall.io/') ? r.fulfill({ status: 200, contentType: 'image/png', body: require('fs').readFileSync(path.join(__dirname, 'art.png')) }) : r.request().url().startsWith('file://') ? r.continue() : r.abort());
         const auth = scenario === 'signin' ? { state: 'signedout' } : { state: 'ok', uid: 'me1', email: 'me@example.com', isAdmin: scenario === 'tools' };
         await page.addInitScript(([s, a, c]) => { window.__seed = s; window.__auth = a; window.__helper = true; try { if (c) localStorage.removeItem('pp.cards'); else localStorage.setItem('pp.cards', 'open'); } catch (e) {} }, [seed(), auth, scenario === 'compact']);
         await page.goto('file://' + path.resolve(OUT));

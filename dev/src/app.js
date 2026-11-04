@@ -170,6 +170,7 @@ function nightDetails(n, pm) {
   var lines = [fmtWhen(n.date, n.time, true) + (n.place ? ', ' + n.place : '')];
   var meta = [];
   if (n.format) meta.push(n.format);
+  if (hasBrackets(n.format) && n.bracket) meta.push('bracket ' + n.bracket + ' or lower');
   meta.push('need ' + (n.min || 4) + ' players');
   if (n.host) meta.push('host: ' + n.host);
   lines.push(meta.join(', '));
@@ -241,6 +242,131 @@ function icsText(n) {
 function downloadIcs(n) {
   Promise.resolve(BACKEND.saveFile((n.title || 'game-night').replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-') + '.ics', 'text/calendar', icsText(n)))
     .catch(function () { toast('Could not save the calendar file here. Use the Google Calendar link.'); });
+}
+
+/* ---------- decks: your decklists, what you're bringing, brackets ----------
+   Decks live on your profile. Commander art comes from Scryfall, looked up once when a deck is saved.
+   Brackets (1 to 5) only mean something for Commander, so other formats hide them. */
+var BRACKETS = ['', 'Exhibition', 'Core', 'Upgraded', 'Optimized', 'cEDH'];
+var MAX_DECKS = 20, MAX_BRING = 3;
+function hasBrackets(format) { return format === 'Commander'; }
+function safeLink(u) { u = String(u || ''); return u.length <= 200 && /^https:\/\/[^\s"'<>\\]+$/i.test(u) ? u : ''; }
+function safeArt(u) { u = String(u || ''); return /^https:\/\/cards\.scryfall\.io\/[\w\-./]+(\?[\w=]+)?$/.test(u) ? u : ''; }
+function deckList(p) { return Array.isArray(p && p.decks) ? p.decks.filter(function (d) { return d && d.id && d.name; }) : []; }
+function decksFor(p, n) {
+  var ids = (p && p.dk && Array.isArray(p.dk[n.id])) ? p.dk[n.id] : [];
+  var all = deckList(p);
+  return ids.map(function (id) { return all.filter(function (d) { return d.id === id; })[0]; }).filter(Boolean);
+}
+function overLimit(d, n) { return hasBrackets(n.format) && n.bracket > 0 && d.b > n.bracket; }
+function commanderArt(name) {
+  name = String(name || '').trim();
+  if (!name || typeof fetch !== 'function') return Promise.resolve(null);
+  return fetch('https://api.scryfall.com/cards/named?fuzzy=' + encodeURIComponent(name), { headers: { Accept: 'application/json' } })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (c) {
+      if (!c || !c.name) return null;
+      var face = c.card_faces && c.card_faces[0] ? c.card_faces[0] : {};
+      var iu = c.image_uris || face.image_uris || {};
+      return { name: String(c.name).slice(0, 80), art: safeArt(iu.art_crop), artist: String(c.artist || face.artist || '').slice(0, 60) };
+    })
+    .catch(function () { return null; });
+}
+function deckArt(d, cls) {
+  var art = safeArt(d.art);
+  var el = h('span', { class: 'dart' + (cls ? ' ' + cls : '') + (art ? '' : ' none'), 'aria-hidden': 'true', text: art ? '' : initial(d.name) });
+  if (art) el.style.backgroundImage = 'url("' + art + '")';
+  return el;
+}
+function bracketChip(b, over) { return b ? h('span', { class: 'bchip' + (over ? ' over' : ''), title: 'Bracket ' + b + ' (' + BRACKETS[b] + ')', text: 'B' + b }) : null; }
+function renderDecks() {
+  var box = $('deckList'); if (!box) return;
+  box.replaceChildren();
+  var list = deckList(me());
+  $('addDeckBtn').hidden = list.length >= MAX_DECKS;
+  if (!list.length) box.append(h('p', { class: 'hint', text: 'No decks yet. Add the decks you play, then pick which ones you\'re bringing to each game.' }));
+  list.forEach(function (d) {
+    var link = safeLink(d.url);
+    box.append(h('div', { class: 'deckrow' },
+      deckArt(d),
+      h('div', { class: 'dinfo' },
+        link ? h('a', { href: link, target: '_blank', rel: 'noopener', class: 'dname' }, d.name) : h('b', { class: 'dname', text: d.name }),
+        h('span', { class: 'dsub' }, [d.cmd || null, d.b ? 'Bracket ' + d.b + ' · ' + BRACKETS[d.b] : null, d.artist ? 'Art: ' + d.artist : null].filter(Boolean).join(' · '))),
+      h('button', { type: 'button', class: 'link', onclick: function () { openDeckForm(d); } }, 'Edit')));
+  });
+}
+function openDeckForm(d) {
+  S.deckEdit = d ? d.id : null;
+  $('dName').value = d ? d.name : ''; $('dCmd').value = d ? (d.cmd || '') : '';
+  $('dBracket').value = String(d ? (d.b || 0) : 0); $('dUrl').value = d ? (d.url || '') : '';
+  $('deckDelete').hidden = !d; $('deckDelete').textContent = 'Remove deck';
+  $('deckSave').textContent = d ? 'Save deck' : 'Add deck';
+  $('deckForm').hidden = false; $('dName').focus();
+}
+function closeDeckForm() { $('deckForm').hidden = true; S.deckEdit = null; }
+function submitDeck() {
+  if (!canWrite() || S.deckBusy) return;
+  var name = $('dName').value.trim().slice(0, 40); if (!name) return;
+  var url = $('dUrl').value.trim();
+  if (url && !/^https?:\/\//i.test(url)) url = 'https://' + url;
+  url = url.replace(/^http:\/\//i, 'https://');
+  if (url && !safeLink(url)) { toast("That link doesn't look right. Copy it from the deck's page."); return; }
+  var cmd = $('dCmd').value.trim().slice(0, 80), b = Math.min(5, Math.max(0, parseInt($('dBracket').value, 10) || 0));
+  var old = S.deckEdit ? deckList(me()).filter(function (x) { return x.id === S.deckEdit; })[0] : null;
+  var same = old && (old.cmd || '') === cmd && (old.art || !cmd);
+  var btn = $('deckSave'), label = btn.textContent;
+  S.deckBusy = true;
+  if (cmd && !same) { btn.disabled = true; btn.textContent = 'Finding the commander…'; }
+  (same ? Promise.resolve(old.art ? { name: old.cmd, art: old.art, artist: old.artist } : null) : commanderArt(cmd)).then(function (c) {
+    S.deckBusy = false; btn.disabled = false; btn.textContent = label;
+    var d = { id: old ? old.id : makeId(), name: name, b: b };
+    if (url) d.url = url;
+    if (cmd) d.cmd = c ? c.name : cmd;
+    if (c && c.art) { d.art = c.art; if (c.artist) d.artist = c.artist; }
+    saveMe(function (me) {
+      var list = deckList(me);
+      var i = list.map(function (x) { return x.id; }).indexOf(d.id);
+      if (i >= 0) list[i] = d; else list.push(d);
+      me.decks = list.slice(0, MAX_DECKS);
+    }).then(function () { toast(cmd && !c ? "Saved. Couldn't find that commander, so no art. Check the spelling." : 'Deck saved'); });
+    closeDeckForm();
+  });
+}
+function deleteDeck() {
+  var id = S.deckEdit; if (!id || !armConfirm('dk:' + id, function () { $('deckDelete').textContent = S.confirm === 'dk:' + id ? 'Tap again to remove' : 'Remove deck'; })) return;
+  saveMe(function (c) {
+    c.decks = deckList(c).filter(function (d) { return d.id !== id; });
+    Object.keys(c.dk || {}).forEach(function (k) { c.dk[k] = c.dk[k].filter(function (x) { return x !== id; }); if (!c.dk[k].length) delete c.dk[k]; });
+  }).then(function () { toast('Deck removed'); });
+  closeDeckForm();
+}
+function toggleBringDeck(n, id) {
+  if (!canWrite()) return;
+  var cur = decksFor(me(), n).map(function (d) { return d.id; });
+  var on = cur.indexOf(id) >= 0;
+  if (!on && cur.length >= MAX_BRING) { toast('Pick up to ' + MAX_BRING + ' decks.'); return; }
+  saveMe(function (c) {
+    c.dk = c.dk || {};
+    var list = (c.dk[n.id] || []).filter(function (x) { return x !== id; });
+    if (!on) list.push(id);
+    if (list.length) c.dk[n.id] = list; else delete c.dk[n.id];
+  });
+}
+function deckPicker(n) {
+  var mine = deckList(me());
+  var wrap = h('div', { class: 'deckpick' }, h('span', { class: 'sublabel', text: 'Decks you\'re bringing' }));
+  if (!mine.length) {
+    wrap.append(h('p', { class: 'hint fine' }, 'Add your decks on the ', h('button', { type: 'button', class: 'link', onclick: function () { setTab('me'); } }, 'Me tab'), ' to show what you\'re bringing.'));
+    return wrap;
+  }
+  var chosen = decksFor(me(), n).map(function (d) { return d.id; });
+  var br = hasBrackets(n.format);
+  wrap.append(h('div', { class: 'deckchips', role: 'group', 'aria-label': 'Decks you are bringing' }, mine.map(function (d) {
+    var over = overLimit(d, n);
+    return h('button', { type: 'button', class: 'deckchip' + (over ? ' over' : ''), 'aria-pressed': String(chosen.indexOf(d.id) >= 0), onclick: function () { toggleBringDeck(n, d.id); } },
+      deckArt(d, 'sm'), h('span', { text: d.name }), br ? bracketChip(d.b, over) : null);
+  })));
+  return wrap;
 }
 
 /* ---------- places: address lookup and rough distances ----------
@@ -509,7 +635,7 @@ function lockIn(p, o) {
   if (!armConfirm('l:' + p.id + o.id, renderPolls)) return;
   var doc = {
     title: p.title, date: o.date, time: o.time || '', place: p.place || '', host: p.host || '', format: p.format,
-    address: p.address || '', lat: typeof p.lat === 'number' ? p.lat : null, lng: typeof p.lng === 'number' ? p.lng : null,
+    address: p.address || '', lat: typeof p.lat === 'number' ? p.lat : null, lng: typeof p.lng === 'number' ? p.lng : null, bracket: p.bracket || 0,
     min: p.min || 4, podIds: p.podIds || [], note: p.note || '', fromPoll: p.id, fromOpt: o.id, by: S.uid, at: Date.now()
   };
   S.db.collection('nights').add(doc).then(function (ref) {
@@ -1116,7 +1242,7 @@ function pollCard(p, pm) {
     h('div', { class: 'card-in' },
       h('div', { class: 'titlebar' }, h('h3', { text: p.title }), h('span', { class: 'cost' + (needsPoll(p, pm) ? ' needs' : ''), text: needsPoll(p, pm) ? 'Needs your vote' : 'Voting open' })),
       h('div', { class: 'typeline' },
-        h('span', { text: typeLine((p.format || 'Game') + ' Poll', p, pm) }),
+        h('span', { text: typeLine((p.format || 'Game') + ' Poll', p, pm) + (hasBrackets(p.format) && p.bracket ? ' · Bracket ' + p.bracket + ' or lower' : '') }),
         h('span', { class: 'pt', 'aria-label': (p.min || 4) + ' players needed', text: '?/' + (p.min || 4) })),
       h('div', { class: 'textbox' },
         meta.length ? h('div', { class: 'meta' }, meta.map(function (m) { return typeof m === 'string' ? h('span', { text: m }) : m; })) : null,
@@ -1141,23 +1267,45 @@ function nightCard(n, pm, g) {
   var mineAns = me() ? answerOf(me(), n) : undefined;
   var seatsN = Math.max(min, c.yes.length);
   var seats = h('div', { class: 'seats', role: 'img', 'aria-label': c.yes.length + ' in, ' + c.maybe.length + ' maybe, ' + min + ' needed' });
+  var credits = [];
+  function seat(p, cls, suffix) {
+    var ds = decksFor(p, n), d = ds[0], art = d ? safeArt(d.art) : '';
+    var over = ds.some(function (x) { return overLimit(x, n); });
+    var el = h('span', { class: 'seat ' + cls + (art ? ' hasart' : '') + (over ? ' over' : ''),
+      title: p.nick + suffix + (ds.length ? ': ' + ds.map(function (x) { return x.name + (hasBrackets(n.format) && x.b ? ' (B' + x.b + ')' : ''); }).join(', ') : ''),
+      text: initial(p.nick) });
+    if (art) { el.style.backgroundImage = 'url("' + art + '")'; if (d.artist && credits.indexOf(d.artist) < 0) credits.push(d.artist); }
+    return el;
+  }
   for (var i = 0; i < seatsN; i++) {
-    if (i < c.yes.length) seats.append(h('span', { class: 'seat yes', title: c.yes[i].nick, text: initial(c.yes[i].nick) }));
-    else if (i < c.yes.length + c.maybe.length) seats.append(h('span', { class: 'seat maybe', title: c.maybe[i - c.yes.length].nick + ' (maybe)', text: initial(c.maybe[i - c.yes.length].nick) }));
+    if (i < c.yes.length) seats.append(seat(c.yes[i], 'yes', ''));
+    else if (i < c.yes.length + c.maybe.length) seats.append(seat(c.maybe[i - c.yes.length], 'maybe', ' (maybe)'));
     else seats.append(h('span', { class: 'seat' }));
   }
+  var deckRows = [];
+  c.yes.concat(c.maybe).forEach(function (p) {
+    var ds = decksFor(p, n); if (!ds.length) return;
+    deckRows.push(h('span', { class: 'dline' }, h('b', { text: p.nick + ': ' }), ds.map(function (d, j) {
+      var link = safeLink(d.url), over = overLimit(d, n);
+      return h('span', { class: over ? 'over' : null }, j ? ', ' : null,
+        link ? h('a', { href: link, target: '_blank', rel: 'noopener' }, d.name) : d.name,
+        d.cmd ? ' (' + d.cmd + ')' : null, hasBrackets(n.format) && d.b ? ' B' + d.b : null, over ? ' · over the limit' : null);
+    })));
+  });
   var roster = h('dl', { class: 'roster' });
   [['yes', 'In', c.yes], ['maybe', 'Maybe', c.maybe], ['no', 'Out', c.no], ['wait', 'Waiting', c.wait]].forEach(function (r) {
     if (r[2].length) roster.append(h('div', { class: r[0] }, h('dt', { text: r[1] }), h('dd', null, nameList(r[2]))));
   });
   if (c.bring.length) roster.append(h('div', { class: 'bring' }, h('dt', { text: 'Bringing' }), h('dd', { text: c.bring.join('; ') })));
+  if (deckRows.length) roster.append(h('div', { class: 'decks' }, h('dt', { text: 'Decks' }), h('dd', null, deckRows)));
   var row = h('div', { class: 'rsvp', role: 'group', 'aria-label': 'Your answer for ' + n.title });
   [['yes', "I'm in"], ['maybe', 'Maybe'], ['no', "Can't"]].forEach(function (r) {
     row.append(h('button', { type: 'button', class: 'rs ' + r[0], 'aria-pressed': String(mineAns === r[0]), disabled: !canWrite(), onclick: function () { answer(n, r[0]); } },
       r[0] === 'yes' ? h('span', { class: 'tapcard', 'aria-hidden': 'true' }) : null, r[1]));
   });
-  var bring = null;
+  var bring = null, picker = null;
   if (canWrite() && (mineAns === 'yes' || mineAns === 'maybe')) {
+    picker = deckPicker(n);
     var bid = 'br_' + n.id;
     bring = h('div', { class: 'bring' },
       h('label', { 'for': bid, text: 'Bringing something?' }),
@@ -1214,16 +1362,17 @@ function nightCard(n, pm, g) {
             n.time ? h('span', { class: 'timechip', text: fmtTime(n.time) }) : null,
             dist ? h('span', { class: 'distchip', title: 'Straight-line distance from your area', text: dist }) : null),
           h('span', { class: 'pill ' + st.cls, text: st.text })),
-        seats),
+        seats,
+        credits.length ? h('span', { class: 'artcredit', text: 'Art: ' + credits.join(', ') }) : null),
       h('div', { class: 'typeline' },
-        h('span', { text: typeLine((n.format || 'Game') + ' Night', n, pm) }),
+        h('span', { text: typeLine((n.format || 'Game') + ' Night', n, pm) + (hasBrackets(n.format) && n.bracket ? ' · Bracket ' + n.bracket + ' or lower' : '') }),
         h('span', { class: 'pt', 'aria-label': c.yes.length + ' of ' + min + ' seats filled', title: 'Seats filled / needed', text: c.yes.length + '/' + min })),
       h('div', { class: 'textbox' },
         datesRow,
         meta.length ? h('div', { class: 'meta' }, meta.map(function (m) { return typeof m === 'string' ? h('span', { text: m }) : m; })) : null,
         n.note ? h('p', { class: 'flavor', text: n.note }) : null,
         roster.children.length ? roster : null,
-        row, bring,
+        row, bring, picker,
         h('div', { class: 'foot' }, cal, owner),
         more)));
 }
@@ -1278,7 +1427,7 @@ function updateControls() {
 }
 function renderAll() {
   applyIdentity(S.ciDraft != null && S.tab === 'me' ? S.ciDraft : (me() && me().ci));
-  renderGate(); renderNotice(); renderMe(); renderPods(); renderInvites(); renderDiscordProfile(); renderFormPods(); renderFilter(); renderPolls(); renderNights(); renderMembers(); updateControls(); maybeOpenNick(); renderTabs();
+  renderGate(); renderNotice(); renderMe(); renderDecks(); renderPods(); renderInvites(); renderDiscordProfile(); renderFormPods(); renderFilter(); renderPolls(); renderNights(); renderMembers(); updateControls(); maybeOpenNick(); renderTabs();
 }
 
 /* ---------- recurring games ----------
@@ -1320,7 +1469,7 @@ function seriesDates(s, from, to, max) {
 }
 function occurrence(s, ymd) {
   return { id: s.id + '_' + ymd.replace(/-/g, ''), date: ymd, time: s.time || '', title: s.title, place: s.place || '', host: s.host || '',
-    address: s.address || '', lat: s.lat, lng: s.lng, format: s.format, min: s.min || 4, podIds: s.podIds || [], note: s.note || '', by: s.by, at: s.at, series: s.id, virtual: true };
+    address: s.address || '', lat: s.lat, lng: s.lng, bracket: s.bracket || 0, format: s.format, min: s.min || 4, podIds: s.podIds || [], note: s.note || '', by: s.by, at: s.at, series: s.id, virtual: true };
 }
 function repeatLabel(s) {
   var day = parseDate(s.date).toLocaleDateString(undefined, { weekday: 'long' });
@@ -1447,17 +1596,20 @@ function addPollRow(date, time) {
     h('button', { type: 'button', class: 'link', onclick: function () { if ($('pollRows').children.length > 2) row.remove(); else toast('A poll needs at least two dates.'); } }, 'Remove'));
   $('pollRows').append(row);
 }
+function updateBracketUI() { $('bracketField').hidden = !hasBrackets($('nFormat').value); }
 function resetNightForm() {
   $('nightForm').reset();
   S.editing = null; S.editingSeries = null;
   var t = todayStr();
   $('nDate').value = t; $('nTime').value = '19:00'; $('nMin').value = '4';
+  $('nBracket').value = '0';
   $('nRepeat').value = 'none'; $('optNone').disabled = false; $('nEnds').value = 'never'; $('nCount').value = '6'; $('nUntil').value = '';
   $('pollRows').replaceChildren();
   addPollRow(addDaysYmd(t, 2)); addPollRow(addDaysYmd(t, 3)); addPollRow(addDaysYmd(t, 4));
   S.formPods.clear(); renderFormPods();
   $('formH').textContent = 'Call a night';
   $('modeSeg').hidden = false; $('repeatField').hidden = false;
+  updateBracketUI();
   setMode('fixed');
 }
 function startEdit(n) {
@@ -1466,6 +1618,7 @@ function startEdit(n) {
   $('nTitle').value = n.title || ''; $('nDate').value = n.date; $('nTime').value = n.time || '';
   $('nFormat').value = n.format || 'Commander'; $('nMin').value = n.min || 4;
   $('nPlace').value = n.place || ''; $('nHost').value = n.host || ''; $('nNote').value = n.note || ''; $('nAddress').value = n.address || '';
+  $('nBracket').value = String(n.bracket || 0); updateBracketUI();
   S.formPods = new Set(n.podIds || []); renderFormPods();
   $('formH').textContent = 'Edit night';
   $('modeSeg').hidden = true; $('repeatField').hidden = true;
@@ -1478,6 +1631,7 @@ function startEditSeries(s) {
   $('nTitle').value = s.title || ''; $('nDate').value = s.date; $('nTime').value = s.time || '';
   $('nFormat').value = s.format || 'Commander'; $('nMin').value = s.min || 4;
   $('nPlace').value = s.place || ''; $('nHost').value = s.host || ''; $('nNote').value = s.note || ''; $('nAddress').value = s.address || '';
+  $('nBracket').value = String(s.bracket || 0); updateBracketUI();
   $('nRepeat').value = s.freq; $('optNone').disabled = true;
   $('nEnds').value = s.count ? 'count' : s.until ? 'until' : 'never';
   if (s.count) $('nCount').value = s.count;
@@ -1521,7 +1675,7 @@ function submitSeriesEdit() {
   if (!date) { toast('Pick a date first.'); return; }
   var s = seriesFromForm(date, $('nTime').value || ''); if (!s) return;
   var full = Object.assign(s, { skips: old.skips || [], by: old.by, at: old.at || Date.now() });
-  var moved = ['date', 'time', 'place', 'host', 'address', 'freq', 'count', 'until'].some(function (k) { return (full[k] || '') !== (old[k] || ''); });
+  var moved = ['date', 'time', 'place', 'host', 'address', 'bracket', 'freq', 'count', 'until'].some(function (k) { return (full[k] || '') !== (old[k] || ''); });
   S.db.doc('series/' + old.id).set(full).then(function () {
     resetNightForm(); closeSheet();
     toast('Recurring game updated');
@@ -1540,6 +1694,7 @@ function formCommon() {
     min: Math.min(12, Math.max(2, parseInt($('nMin').value, 10) || 4)),
     place: $('nPlace').value.trim(), host: $('nHost').value.trim(),
     address: $('nAddress').value.trim().slice(0, 120), lat: S.formPlace.lat, lng: S.formPlace.lng,
+    bracket: hasBrackets(format) ? Math.min(4, Math.max(0, parseInt($('nBracket').value, 10) || 0)) : 0,
     podIds: Array.from(S.formPods), note: $('nNote').value.trim()
   };
 }
@@ -1723,6 +1878,11 @@ function wireForms() {
     });
   });
   $('hereBtn').addEventListener('click', useHere);
+  $('addDeckBtn').addEventListener('click', function () { if (!$('deckForm').hidden && !S.deckEdit) { closeDeckForm(); return; } openDeckForm(null); });
+  $('deckCancel').addEventListener('click', closeDeckForm);
+  $('deckDelete').addEventListener('click', deleteDeck);
+  $('deckForm').addEventListener('submit', function (e) { e.preventDefault(); submitDeck(); });
+  $('nFormat').addEventListener('change', updateBracketUI);
 }
 
 /* ---------- boot ---------- */

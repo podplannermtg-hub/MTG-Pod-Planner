@@ -353,3 +353,32 @@ body.sheet-open{overflow:hidden}
 .addr{display:inline-block;padding:3px 0;min-height:24px}
 .hint #hereBtn{padding:4px 0;min-height:26px}
 .osm a{display:inline-block;padding:5px 0;color:inherit}
+
+/* ---------- decks ---------- */
+.decklist{display:flex;flex-direction:column}
+.deckrow{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.deckrow:first-child{border-top:0;padding-top:0}
+.dinfo{display:flex;flex-direction:column;min-width:0}
+.dname{font-weight:700;color:var(--ink);overflow-wrap:anywhere}
+a.dname{text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:3px;display:inline-block;padding:2px 0;min-height:24px}
+.dsub{font-size:13px;color:var(--muted);overflow-wrap:anywhere}
+.dart{width:44px;height:44px;border-radius:50%;flex:none;background:var(--surface-2) center/cover no-repeat;display:grid;place-items:center;
+  font-family:var(--font-display);font-weight:700;color:var(--muted);box-shadow:0 0 0 1px color-mix(in srgb,var(--ink) 18%,transparent)}
+.dart.sm{width:24px;height:24px;font-size:11px}
+.deckpick{display:flex;flex-direction:column;gap:6px}
+.deckchips{display:flex;flex-wrap:wrap;gap:6px}
+.deckchip{display:inline-flex;align-items:center;gap:7px;max-width:100%;padding:4px 10px 4px 4px;border-radius:999px;border:1px solid var(--line);background:var(--bg);font-size:13px;font-weight:600;min-height:34px}
+.deckchip > span:not(.dart):not(.bchip){min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.deckchip[aria-pressed=true]{border-color:var(--accent-text);box-shadow:inset 0 0 0 1px var(--accent-text)}
+.deckchip.over{border-color:var(--bad)}
+.bchip{font-family:var(--font-mono);font-size:11px;font-weight:700;padding:1px 6px;border-radius:6px;border:1px solid var(--line);color:var(--muted);flex:none}
+.bchip.over{border-color:var(--bad);color:var(--bad)}
+.roster .decks dd{display:flex;flex-direction:column;gap:2px}
+.dline a{color:inherit}
+.roster .over,.dline .over{color:var(--bad);font-weight:600}
+.seat.hasart{background-size:cover;background-position:center;color:transparent;border-color:var(--surface)}
+.seat.maybe.hasart{opacity:.75;border-style:dashed}
+.seat.over{box-shadow:0 0 0 2px var(--bad),0 2px 6px -2px color-mix(in srgb,var(--ink) 60%,transparent)}
+.artcredit{font-size:10px;line-height:1.2;color:color-mix(in srgb,var(--ink) 80%,transparent);background:color-mix(in srgb,var(--surface) 70%,transparent);align-self:flex-start;padding:1px 6px;border-radius:4px;margin-top:-6px;overflow-wrap:anywhere}
+.card.compact .deckpick{display:none}
+.dline a{display:inline-block;padding:4px 0;min-height:24px}
