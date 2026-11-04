@@ -13,11 +13,22 @@
 <style>
 :root{
   --bg:#ECEFED; --surface:#F9FAF9; --surface-2:#E2E8E4; --ink:#101916; --muted:#56655F; --line:#CCD4D0;
-  --accent:#17624E; --accent-ink:#F4FBF8;
+  --hi:#FFFFFF;
   --good:#17703F; --good-soft:#D2EBDC;
   --warn:#8F5A00; --warn-soft:#F3E4C4; --on-warn:#FFFFFF;
   --bad:#A63636;
-  --m-w:#D9C67A; --m-u:#3B7DBF; --m-b:#6A5B72; --m-r:#D1523D; --m-g:#3C9A59;
+  --m-w:#D9C67A; --m-u:#3B7DBF; --m-b:#6A5B72; --m-r:#D1523D; --m-g:#3C9A59; --m-c:#A9B3AE;
+  /* card frames: two stops per color */
+  --fr-w:#EDE3BC; --fr-w2:#CDBB7C; --fr-u:#5A97D4; --fr-u2:#2C66A6; --fr-b:#62566F; --fr-b2:#362C40;
+  --fr-r:#DD6650; --fr-r2:#A93A27; --fr-g:#55A56B; --fr-g2:#2C7643; --fr-gold:#E6C770; --fr-gold2:#B48A2C;
+  --fr-c:#C3CBC7; --fr-c2:#8D9893;
+  /* accent per color identity: fill, text on the fill, and accent used as text */
+  --acc-c:#17624E; --acc-c-ink:#F4FBF8; --acc-c-text:#17624E;
+  --acc-w:#E3CF7E; --acc-w-ink:#2B2410; --acc-w-text:#7A6418;
+  --acc-u:#2F6DB0; --acc-u-ink:#FFFFFF; --acc-u-text:#2A62A0;
+  --acc-b:#3F3448; --acc-b-ink:#F3EEF6; --acc-b-text:#4F4458;
+  --acc-r:#BF402D; --acc-r-ink:#FFFFFF; --acc-r-text:#AE3A28;
+  --acc-g:#2E7D47; --acc-g-ink:#FFFFFF; --acc-g-text:#2A7442;
   --font-display:'Bricolage Grotesque','Trebuchet MS',system-ui,sans-serif;
   --font-body:'Hanken Grotesk',system-ui,-apple-system,'Segoe UI',sans-serif;
   --font-mono:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,monospace;
@@ -26,15 +37,33 @@
 @media (prefers-color-scheme: dark){
   :root{
     --bg:#0E1412; --surface:#151D1A; --surface-2:#1E2824; --ink:#E5EDE9; --muted:#93A59D; --line:#2A3631;
-    --accent:#53C7A1; --accent-ink:#04140E;
     --good:#5FD08E; --good-soft:#1A3626;
     --warn:#E3B04F; --warn-soft:#3A2F14; --on-warn:#1B1303;
     --bad:#EF7B7B;
-    --m-w:#E5D58E; --m-u:#5C9BDB; --m-b:#8E7E98; --m-r:#E36B56; --m-g:#58B374;
+    --m-w:#E5D58E; --m-u:#5C9BDB; --m-b:#8E7E98; --m-r:#E36B56; --m-g:#58B374; --m-c:#5E6A65;
+    --fr-w:#D3C68F; --fr-w2:#9C8E55; --fr-u:#4483C2; --fr-u2:#244F80; --fr-b:#76688A; --fr-b2:#3A3045;
+    --fr-r:#CC5A43; --fr-r2:#8A2E1E; --fr-g:#46985E; --fr-g2:#255C36; --fr-gold:#CFAA45; --fr-gold2:#8A681C;
+    --fr-c:#6E7A75; --fr-c2:#46504C;
+    --acc-c:#53C7A1; --acc-c-ink:#04140E; --acc-c-text:#53C7A1;
+    --acc-w:#E8D88E; --acc-w-ink:#1B1608; --acc-w-text:#E8D88E;
+    --acc-u:#5C9BDB; --acc-u-ink:#06121F; --acc-u-text:#7FB2E6;
+    --acc-b:#9C8AA8; --acc-b-ink:#120E16; --acc-b-text:#B9A8C4;
+    --acc-r:#E36B56; --acc-r-ink:#1E0A06; --acc-r-text:#F08A77;
+    --acc-g:#58B374; --acc-g-ink:#06150B; --acc-g-text:#74C68E;
     color-scheme:dark;
   }
 }
-/* Layout: one narrow column. Header, pod strip, then polls and night cards with a row of seat circles showing how full the table is. */
+/* Layout: one narrow column. Header, pods, then polls and game nights drawn as trading-card-style frames:
+   frame color = the pods' mana colors, art panel = seats at the table, type line = format and pods, P/T box = seats filled / needed. */
+
+/* The viewer's color identity sets the accent. Colorless keeps the house green. */
+:root{--accent:var(--acc-c);--accent-ink:var(--acc-c-ink);--accent-text:var(--acc-c-text)}
+:root[data-ci1="W"]{--accent:var(--acc-w);--accent-ink:var(--acc-w-ink);--accent-text:var(--acc-w-text)}
+:root[data-ci1="U"]{--accent:var(--acc-u);--accent-ink:var(--acc-u-ink);--accent-text:var(--acc-u-text)}
+:root[data-ci1="B"]{--accent:var(--acc-b);--accent-ink:var(--acc-b-ink);--accent-text:var(--acc-b-text)}
+:root[data-ci1="R"]{--accent:var(--acc-r);--accent-ink:var(--acc-r-ink);--accent-text:var(--acc-r-text)}
+:root[data-ci1="G"]{--accent:var(--acc-g);--accent-ink:var(--acc-g-ink);--accent-text:var(--acc-g-text)}
+
 *{box-sizing:border-box}
 [hidden]{display:none!important}
 body{
@@ -51,16 +80,19 @@ h2{font-family:var(--font-display);font-weight:700;font-size:20px;letter-spacing
 button,input,select,textarea{font:inherit;color:inherit}
 button{cursor:pointer}
 button:disabled{cursor:not-allowed;opacity:.5}
-:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+:focus-visible{outline:2px solid var(--accent-text);outline-offset:2px}
 
 .top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}
 .brand{display:flex;flex-direction:column;gap:8px;min-width:0}
 .mana-row{display:flex;gap:5px}
 .dot{display:inline-block;width:11px;height:11px;border-radius:50%;flex:none;box-shadow:0 0 0 1px color-mix(in srgb,var(--ink) 25%,transparent)}
-.m-W{background:var(--m-w)} .m-U{background:var(--m-u)} .m-B{background:var(--m-b)} .m-R{background:var(--m-r)} .m-G{background:var(--m-g)}
+.m-W{background:var(--m-w)} .m-U{background:var(--m-u)} .m-B{background:var(--m-b)} .m-R{background:var(--m-r)} .m-G{background:var(--m-g)} .m-C{background:var(--m-c)}
 .sub{color:var(--muted);max-width:44ch}
 .me-btn{display:inline-flex;align-items:center;gap:8px;padding:7px 12px;border:1px solid var(--line);background:var(--surface);border-radius:999px;font-size:13px;font-weight:600}
 .me-btn small{font-weight:500;color:var(--muted)}
+.pips{display:inline-flex;gap:2px;margin-left:4px;vertical-align:1px}
+.pips i{width:7px;height:7px;border-radius:50%;box-shadow:0 0 0 1px color-mix(in srgb,var(--ink) 25%,transparent)}
+.me-btn .pips i{width:9px;height:9px}
 
 .notice{padding:10px 14px;border:1px solid var(--warn);background:var(--warn-soft);color:var(--ink);border-radius:10px;font-size:14px}
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:14px}
@@ -83,20 +115,26 @@ a.link{display:inline-block}
 .head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
 .chips{display:flex;flex-wrap:wrap;gap:8px}
 .chipwrap{display:inline-flex;align-items:center;gap:2px}
+.chipwrap > .link{min-width:32px;min-height:32px;font-size:16px;text-decoration:none;border-radius:50%}
+.chipwrap > .link.danger{font-size:13px;text-decoration:underline;border-radius:6px}
 .chip{display:inline-flex;align-items:center;gap:8px;padding:7px 12px;border:1px solid var(--line);background:var(--surface);border-radius:999px;font-size:14px;font-weight:600}
-.chip.on{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.chip.on{border-color:var(--accent-text);box-shadow:inset 0 0 0 1px var(--accent-text)}
 .chip.armed{border-color:var(--bad);color:var(--bad)}
 .chip .count{font-family:var(--font-mono);font-size:12px;color:var(--muted);font-weight:500}
-.chip .chk{color:var(--accent);font-weight:800}
+.chip .chk{color:var(--accent-text);font-weight:800}
 .pick{display:inline-flex;align-items:center;gap:8px;padding:7px 12px;border:1px solid var(--line);background:var(--bg);border-radius:999px;font-size:14px;cursor:pointer}
-.pick:has(input:checked){border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.pick:has(input:checked){border-color:var(--accent-text);box-shadow:inset 0 0 0 1px var(--accent-text)}
 .pick input{accent-color:var(--accent)}
-.mana{display:flex;gap:10px}
+.mana{display:flex;gap:10px;flex-wrap:wrap}
 .mana label{cursor:pointer;position:relative}
 .mana input{position:absolute;opacity:0;inset:0;margin:0;cursor:pointer}
 .mana .swatch{display:block;width:30px;height:30px;border-radius:50%;box-shadow:0 0 0 1px color-mix(in srgb,var(--ink) 25%,transparent)}
 .mana input:checked + .swatch{outline:2px solid var(--ink);outline-offset:3px}
-.mana input:focus-visible + .swatch{outline:2px solid var(--accent);outline-offset:3px}
+.mana input:focus-visible + .swatch{outline:2px solid var(--accent-text);outline-offset:3px}
+.ci button{background:none;border:0;padding:0;border-radius:50%}
+.ci button .swatch{opacity:.4;transition:opacity .15s}
+.ci button[aria-pressed=true] .swatch{opacity:1;outline:2px solid var(--ink);outline-offset:3px}
+.ciname{font-weight:600}
 
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface);align-self:flex-start}
 .seg button{background:none;border:0;padding:7px 14px;font-size:13px;font-weight:600;color:var(--muted)}
@@ -117,25 +155,57 @@ a.link{display:inline-block}
 .minfo{display:flex;flex-direction:column;min-width:0}
 .minfo b{font-weight:600;overflow-wrap:anywhere}
 .minfo span{color:var(--muted);font-size:13px;overflow-wrap:anywhere}
+.minfo .tagline{color:var(--bad)}
 .mact{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .small{padding:7px 12px;font-size:13px}
 .grow{flex:1 1 220px}
 .headctl{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 #discordForm .row{align-self:end}
-.minfo .tagline{color:var(--bad)}
 
 .optrow{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,120px) auto;gap:8px;align-items:center}
 #pollRows{display:flex;flex-direction:column;gap:8px}
 
-.list{display:flex;flex-direction:column;gap:14px}
-.kicker{font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);font-weight:600}
+.list{display:flex;flex-direction:column;gap:18px}
 .empty{padding:28px 18px;text-align:center;border:1px dashed var(--line);border-radius:14px;color:var(--muted)}
 .empty h3{font-family:var(--font-display);font-size:18px;color:var(--ink);margin-bottom:4px}
 
-.poll{display:flex;flex-direction:column;gap:10px;padding:16px;background:var(--surface);border:1px dashed var(--accent);border-radius:14px}
-.poll h3{font-family:var(--font-display);font-size:19px;font-weight:700;letter-spacing:-0.01em;overflow-wrap:anywhere}
+/* ---------- card frames ---------- */
+.card{position:relative;padding:7px;border-radius:18px;background:linear-gradient(150deg,var(--fa),var(--fb));
+  box-shadow:0 1px 0 color-mix(in srgb,var(--ink) 10%,transparent),0 10px 24px -16px color-mix(in srgb,var(--ink) 55%,transparent)}
+.f-W{--fa:var(--fr-w);--fb:var(--fr-w2)} .f-U{--fa:var(--fr-u);--fb:var(--fr-u2)} .f-B{--fa:var(--fr-b);--fb:var(--fr-b2)}
+.f-R{--fa:var(--fr-r);--fb:var(--fr-r2)} .f-G{--fa:var(--fr-g);--fb:var(--fr-g2)} .f-gold{--fa:var(--fr-gold);--fb:var(--fr-gold2)}
+.f-none{--fa:var(--fr-c);--fb:var(--fr-c2)}
+/* A poll is not locked in yet: its frame is striped. */
+.card.poll{background:repeating-linear-gradient(135deg,var(--fa) 0 10px,var(--fb) 10px 20px)}
+.card-in{background:var(--surface);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;border:1px solid color-mix(in srgb,var(--ink) 18%,transparent)}
+.titlebar{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding:9px 12px;background:var(--surface-2);border-bottom:1px solid var(--line)}
+.titlebar h3{font-family:var(--font-display);font-size:18px;font-weight:700;letter-spacing:-0.01em;min-width:0;overflow-wrap:anywhere;line-height:1.2}
+.cost{flex:none;margin-top:1px;font-family:var(--font-mono);font-size:12px;font-weight:600;white-space:nowrap;padding:3px 9px;border-radius:999px;background:var(--surface);border:1px solid var(--line)}
+.a1-W{--a1:var(--m-w)} .a1-U{--a1:var(--m-u)} .a1-B{--a1:var(--m-b)} .a1-R{--a1:var(--m-r)} .a1-G{--a1:var(--m-g)} .a1-C{--a1:var(--m-c)}
+.a2-W{--a2:var(--m-w)} .a2-U{--a2:var(--m-u)} .a2-B{--a2:var(--m-b)} .a2-R{--a2:var(--m-r)} .a2-G{--a2:var(--m-g)} .a2-C{--a2:var(--m-c)}
+.art{position:relative;min-height:108px;padding:12px;display:flex;flex-direction:column;justify-content:space-between;gap:14px;
+  background:
+    repeating-linear-gradient(45deg,color-mix(in srgb,var(--hi) 12%,transparent) 0 2px,transparent 2px 11px),
+    radial-gradient(120% 90% at 12% 8%,color-mix(in srgb,var(--hi) 35%,transparent),transparent 60%),
+    linear-gradient(135deg,var(--a1),var(--a2))}
+.artrow{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap}
+.timechip{font-family:var(--font-mono);font-size:13px;font-weight:600;padding:3px 9px;border-radius:999px;background:var(--surface);color:var(--ink)}
+.art .pill{box-shadow:0 0 0 1px color-mix(in srgb,var(--ink) 15%,transparent)}
+.art .pill.short{background:var(--surface)}
+.seats{display:flex;flex-wrap:wrap;gap:7px}
+.seat{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;font-family:var(--font-display);font-weight:700;font-size:14px;line-height:1;color:var(--ink);
+  border:2px solid color-mix(in srgb,var(--surface) 75%,transparent);background:color-mix(in srgb,var(--ink) 12%,transparent)}
+.seat.yes{background:var(--surface);border-color:var(--surface);box-shadow:0 2px 6px -2px color-mix(in srgb,var(--ink) 60%,transparent)}
+.seat.maybe{background:color-mix(in srgb,var(--surface) 55%,transparent);border-style:dashed;border-color:var(--surface)}
+.typeline{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 12px;background:var(--surface-2);border-top:1px solid var(--line);border-bottom:1px solid var(--line);font-size:13px;font-weight:600}
+.typeline > span:first-child{min-width:0;overflow-wrap:anywhere}
+.pt{font-family:var(--font-mono);font-weight:700;font-size:13px;padding:2px 8px;border-radius:6px;border:1.5px solid var(--ink);background:var(--surface);white-space:nowrap}
+.textbox{padding:12px;display:flex;flex-direction:column;gap:12px}
+.flavor{font-style:italic;font-size:14px;color:var(--muted);overflow-wrap:anywhere}
+
 .opts{display:flex;flex-direction:column}
 .opt{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 12px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.opt:first-child{border-top:0;padding-top:0}
 .optinfo{display:flex;flex-direction:column;gap:2px;min-width:0}
 .when{font-weight:600;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .optcount{font-family:var(--font-mono);font-size:12px;color:var(--muted)}
@@ -147,39 +217,24 @@ a.link{display:inline-block}
 .vb[aria-pressed=true].no{background:var(--ink);color:var(--bg);border-color:var(--ink)}
 .opt.best .when{color:var(--good)}
 
-.night{display:grid;grid-template-columns:64px minmax(0,1fr);gap:16px;padding:16px;background:var(--surface);border:1px solid var(--line);border-radius:14px}
-.date{display:flex;flex-direction:column;align-items:center;gap:1px;padding:8px 0;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);height:max-content;font-family:var(--font-mono)}
-.date .mo,.date .wd{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
-.date .dd{font-family:var(--font-display);font-size:28px;font-weight:700;line-height:1.05;color:var(--ink)}
-.body{display:flex;flex-direction:column;gap:12px;min-width:0}
-.titlerow{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap}
-.titlerow h3{font-family:var(--font-display);font-size:19px;font-weight:700;letter-spacing:-0.01em;min-width:0;overflow-wrap:anywhere}
 .pill{font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px;white-space:nowrap}
 .pill.on{background:var(--good-soft);color:var(--good)}
 .pill.maybe{background:var(--warn-soft);color:var(--warn)}
 .pill.short{background:var(--surface-2);color:var(--muted)}
 .meta{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:14px;color:var(--muted)}
-.meta b{color:var(--ink);font-weight:600;font-family:var(--font-mono);font-size:13px}
-.tags{display:flex;flex-wrap:wrap;gap:6px}
-.tag{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:2px 9px;border-radius:999px;border:1px solid var(--line)}
-.tag .dot{width:9px;height:9px}
-.note{font-size:14px;overflow-wrap:anywhere}
-.seatrow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-.seats{display:flex;flex-wrap:wrap;gap:6px}
-.seat{width:20px;height:20px;border-radius:50%;border:2px solid var(--line)}
-.seat.yes{background:var(--accent);border-color:var(--accent)}
-.seat.maybe{border:2px dashed var(--accent)}
-.seatcount{font-family:var(--font-mono);font-size:12px;color:var(--muted)}
 .roster{display:grid;gap:4px;font-size:13px;margin:0}
 .roster div{display:grid;grid-template-columns:70px minmax(0,1fr);gap:8px}
 .roster dt{color:var(--muted);font-weight:600}
 .roster dd{margin:0;overflow-wrap:anywhere}
 .roster .wait dd{color:var(--muted)}
 .rsvp{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
-.rs{padding:10px 8px;border-radius:10px;border:1px solid var(--line);background:var(--bg);font-weight:700;font-size:14px}
+.rs{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:10px 8px;border-radius:10px;border:1px solid var(--line);background:var(--bg);font-weight:700;font-size:14px}
 .rs[aria-pressed=true].yes{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
 .rs[aria-pressed=true].maybe{background:var(--warn);color:var(--on-warn);border-color:var(--warn)}
 .rs[aria-pressed=true].no{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+/* "I'm in" taps a little card sideways, like tapping a permanent. */
+.tapcard{display:inline-block;width:10px;height:14px;border:2px solid currentColor;border-radius:2px;flex:none}
+.rs.yes[aria-pressed=true] .tapcard{transform:rotate(90deg)}
 .bring{display:flex;flex-direction:column;gap:4px}
 .bring label{font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
 .foot{display:flex;justify-content:space-between;align-items:center;gap:4px 14px;flex-wrap:wrap}
@@ -191,28 +246,37 @@ details.past summary{cursor:pointer;font-weight:600;font-size:14px}
 .pastrow span:last-child{color:var(--muted);font-family:var(--font-mono);font-size:12px}
 
 #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:9px 16px;border-radius:999px;font-size:14px;font-weight:600;z-index:20;max-width:calc(100% - 32px)}
+.confetti{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:30}
 @media (prefers-reduced-motion:no-preference){
   .rs,.vb,.chip,.primary{transition:background-color .12s,border-color .12s}
+  .tapcard{transition:transform .3s cubic-bezier(.3,1.5,.5,1)}
+  .card{transition:transform .18s ease,box-shadow .18s ease}
+}
+@media (hover:hover) and (prefers-reduced-motion:no-preference){
+  .card:hover{transform:translateY(-2px)}
 }
 @media (max-width:420px){
   h1{font-size:30px}
-  .night{grid-template-columns:54px minmax(0,1fr);gap:12px;padding:14px}
+  .card{padding:6px;border-radius:16px}
   .opt{grid-template-columns:minmax(0,1fr)}
+  .votes{display:grid;grid-template-columns:repeat(3,1fr)}
+  .vb{padding:9px 6px}
   .optrow{grid-template-columns:minmax(0,1fr) minmax(0,104px)}
   .optrow .link{grid-column:1/-1;justify-self:start}
+  .rs{font-size:13px;gap:6px}
 }
-
-#me{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.stack{display:flex;flex-direction:column;gap:12px}
-.memberform{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin:12px 0}
-.memberform .field{flex:1;min-width:200px}
+@media (max-width:359px){
+  .seats{gap:5px}
+  .seat{width:26px;height:26px;font-size:12px}
+  .titlebar h3{font-size:17px}
+}
 </style>
 </head>
 <body>
 <div id="app">
   <header class="top">
     <div class="brand">
-      <div class="mana-row" aria-hidden="true"><i class="dot m-W"></i><i class="dot m-U"></i><i class="dot m-B"></i><i class="dot m-R"></i><i class="dot m-G"></i></div>
+      <div class="mana-row" id="ciRow" aria-hidden="true"><i class="dot m-W"></i><i class="dot m-U"></i><i class="dot m-B"></i><i class="dot m-R"></i><i class="dot m-G"></i></div>
       <h1>Pod Planner</h1>
       <p class="sub">Call a night once. Every pod sees it and answers in one tap.</p>
     </div>
@@ -229,6 +293,17 @@ details.past summary{cursor:pointer;font-weight:600;font-size:14px}
       <label for="nick">Your name at the table</label>
       <input id="nick" type="text" maxlength="24" autocomplete="nickname" placeholder="Rob" required>
     </div>
+    <fieldset class="field">
+      <legend>Your colors</legend>
+      <div class="mana ci" id="ciPick" role="group" aria-label="Your color identity">
+        <button type="button" data-c="W" aria-pressed="false" aria-label="White"><span class="swatch m-W"></span></button>
+        <button type="button" data-c="U" aria-pressed="false" aria-label="Blue"><span class="swatch m-U"></span></button>
+        <button type="button" data-c="B" aria-pressed="false" aria-label="Black"><span class="swatch m-B"></span></button>
+        <button type="button" data-c="R" aria-pressed="false" aria-label="Red"><span class="swatch m-R"></span></button>
+        <button type="button" data-c="G" aria-pressed="false" aria-label="Green"><span class="swatch m-G"></span></button>
+      </div>
+      <p class="hint"><span class="ciname" id="ciName">Colorless</span>. The app takes on your colors, and they show next to your name.</p>
+    </fieldset>
     <div class="row">
       <button class="primary" type="submit">Save name</button>
       <button class="ghost" type="button" id="nickCancel">Not now</button>

@@ -6,3 +6,5 @@ firestore.rules
 *service-account*.json
 *-key.json
 .env
+# Build and test output from dev/
+dev/dist/
