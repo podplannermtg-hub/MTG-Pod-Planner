@@ -7,5 +7,7 @@ window.POD_CONFIG = {
     authDomain: 'pod-planner-mtg.firebaseapp.com',
     projectId: 'pod-planner-mtg',
     appId: '1:114791776178:web:1b7c09c74aad47623aeeab'
-  }
+  },
+  // The Discord helper on Cloudflare: pod roles, pod pings and daily reminders.
+  helperUrl: 'https://pod-planner-helper.podplannermtg.workers.dev'
 };
