@@ -171,6 +171,7 @@ Once the helper is running, the GitHub reminder job sees that and stops sending 
 - **Who can join:** *Anyone* means people tap to join. *Invite only* means members invite people in, and the invitee taps **Join pod**. Everyone can still see an invite-only pod's nights and answer them.
 - **@Open Seats:** whether that pod's short nights get advertised to @Open Seats. Nights show "Open table" or "Pod only".
 - **Who can see it:** *Everyone*, or *Members only* (a private pod). A private pod, who is in it, and its games are visible only to its members, people invited to it, and organizers. It's always invite only and never calls @Open Seats. With the helper, it gets a private Discord channel that only its role can see, and its games, reminders and "Game on" go there instead of the shared channel. Only organizers can switch an existing pod between public and private; its own games move with it.
+- **Joining a private pod:** someone in the pod invites you. If that's the pod's creator or an organizer, the invite arrives right away. If it's any other member, it's a suggestion: the creator (or an organizer) sees "Dana wants to invite Sam" on the Pods tab and approves or declines it, and Sam doesn't see the pod until it's approved. An invite is used up when someone joins, so leaving means asking for a new one.
 
 ## Security checklist (all free)
 

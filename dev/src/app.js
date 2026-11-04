@@ -517,7 +517,7 @@ function renderTabs() {
   $('nickCancel').hidden = !(me() && me().nick);
   var need = needsCount();
   badge('badgeGames', need, need === 1 ? '1 game needs your answer' : need + ' games need your answer');
-  var inv = myInvites().length;
+  var inv = myInvites().length + approvals().length;
   badge('badgePods', inv, inv === 1 ? '1 pod invite' : inv + ' pod invites');
 }
 function badge(id, n, label) {
@@ -568,7 +568,7 @@ function needsCount() {
 function myInvites() {
   if (!canWrite()) return [];
   var pm = podById(), mine = myPods();
-  return S.invites.filter(function (x) { return x.uid === S.uid && pm[x.podId] && mine.indexOf(x.podId) < 0; });
+  return S.invites.filter(function (x) { return x.uid === S.uid && pm[x.podId] && mine.indexOf(x.podId) < 0 && (!pm[x.podId].private || x.ok === true); });
 }
 
 /* ---------- the "Call a night" sheet ---------- */
@@ -686,16 +686,44 @@ function togglePod(id) {
     c.pods = c.pods || [];
     var i = c.pods.indexOf(id);
     if (i >= 0) c.pods.splice(i, 1); else { c.pods.push(id); c.joining = id; }
-  }).then(helperSync);
+  }).then(function () {
+    var inv = !inIt && myInvite(id);
+    if (inv) S.db.doc('invites/' + inv.id).delete().catch(function () {});
+    helperSync();
+  });
 }
 function invitablePods() {
   return podsSorted().filter(function (p) { return p.join === 'invite' && (myPods().indexOf(p.id) >= 0 || p.by === S.uid || S.isAdmin); });
 }
+// Private pods: an invite from a member waits for the pod's creator (or an organizer) to approve it.
+// Until then the invited person doesn't see the pod at all. An invite is used up when someone joins.
+function canApprove(p) { return !!p && (S.isAdmin || p.by === S.uid); }
+function approvals() {
+  return S.invites.filter(function (x) { return x.ok !== true && isPrivPod(x.podId) && canApprove(S.priv.pods[x.podId]); });
+}
 function sendInvite(podId, uid) {
   if (!podId || !uid) { toast('Pick a pod and a person.'); return; }
-  var who = S.people[uid];
-  S.db.doc('invites/' + podId + '_' + uid).set({ podId: podId, uid: uid, by: S.uid, at: Date.now() })
-    .then(function () { toast('Invite sent to ' + ((who && who.nick) || 'them')); $('inviteForm').hidden = true; }).catch(writeError);
+  var who = S.people[uid], pod = podById()[podId];
+  var ok = !(pod && pod.private) || canApprove(pod);
+  var owner = pod && S.people[pod.by];
+  S.db.doc('invites/' + podId + '_' + uid).set({ podId: podId, uid: uid, by: S.uid, at: Date.now(), ok: ok })
+    .then(function () {
+      toast(ok ? 'Invite sent to ' + ((who && who.nick) || 'them')
+        : 'Sent to ' + ((owner && owner.nick) || "the pod's creator") + ' to approve. ' + ((who && who.nick) || 'They') + ' will see it once approved.');
+      $('inviteForm').hidden = true;
+    }).catch(writeError);
+}
+function approveInvite(inv) { S.db.doc('invites/' + inv.id).update({ ok: true }).then(function () { toast('Approved'); }).catch(writeError); }
+function declineInvite(inv) {
+  if (!armConfirm('dec:' + inv.id, renderInvites)) return;
+  S.db.doc('invites/' + inv.id).delete().then(function () { toast('Declined'); }).catch(writeError);
+}
+function joinFromInvite(inv) {
+  if (!canWrite() || needNick()) return;
+  saveMe(function (c) {
+    c.pods = c.pods || [];
+    if (c.pods.indexOf(inv.podId) < 0) { c.pods.push(inv.podId); c.joining = inv.podId; }
+  }).then(function () { S.db.doc('invites/' + inv.id).delete().catch(function () {}); helperSync(); });
 }
 function fillInviteSelects() {
   var pods = invitablePods(), podSel = $('invPod'), whoSel = $('invWho');
@@ -720,9 +748,20 @@ function renderInvites() {
     box.append(h('div', { class: 'panel invite' },
       h('p', null, h('b', { text: (from && from.nick) || 'Someone' }), ' invited you to ', h('b', { text: p.name })),
       h('div', { class: 'mact' },
-        h('button', { type: 'button', class: 'primary small', onclick: function () { togglePod(p.id); } }, 'Join pod'),
+        h('button', { type: 'button', class: 'primary small', onclick: function () { joinFromInvite(inv); } }, 'Join pod'),
         h('button', { type: 'button', class: 'link', onclick: function () { S.db.doc('invites/' + inv.id).delete().catch(writeError); } }, 'No thanks'))));
   });
+  approvals().forEach(function (inv) {
+    var p = S.priv.pods[inv.podId], from = S.people[inv.by], who = S.people[inv.uid], armed = S.confirm === 'dec:' + inv.id;
+    box.append(h('div', { class: 'panel invite approve' },
+      h('p', null, h('b', { text: (from && from.nick) || 'Someone' }), ' wants to invite ', h('b', { text: (who && who.nick) || 'someone' }), ' to ', h('b', { text: p.name }), '.'),
+      h('div', { class: 'mact' },
+        h('button', { type: 'button', class: 'primary small', onclick: function () { approveInvite(inv); } }, 'Approve'),
+        h('button', { type: 'button', class: 'link' + (armed ? ' danger' : ''), onclick: function () { declineInvite(inv); } }, armed ? 'Tap again to decline' : 'Decline'))));
+  });
+  var waiting = S.invites.filter(function (x) { return x.by === S.uid && x.ok === false && isPrivPod(x.podId) && !canApprove(S.priv.pods[x.podId]); });
+  if (waiting.length) box.append(h('p', { class: 'hint', text: 'Waiting for approval: ' + waiting.map(function (x) {
+    var w = S.people[x.uid]; return ((w && w.nick) || 'someone') + ' to ' + S.priv.pods[x.podId].name; }).join(', ') + '.' }));
   var pods = invitablePods();
   $('inviteBox').hidden = !pods.length;
   var focusIn = $('inviteForm').contains(document.activeElement);
@@ -2005,7 +2044,7 @@ function syncPrivate() {
   var pubIds = {}; S.pub.pods.forEach(function (p) { pubIds[p.id] = true; });
   var want = {};
   if (!S.isAdmin) {
-    myPods().concat(S.invites.filter(function (x) { return x.uid === S.uid; }).map(function (x) { return x.podId; }))
+    myPods().concat(S.invites.filter(function (x) { return x.uid === S.uid && x.ok === true; }).map(function (x) { return x.podId; }))
       .forEach(function (id) { if (id && !pubIds[id]) want[id] = true; });
     Object.keys(want).forEach(function (id) {
       var key = 'pod:' + id;

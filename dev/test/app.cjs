@@ -644,7 +644,7 @@ const calls = (page) => page.evaluate(() => window.__calls);
   {
     // Rob gets an invite: he sees the pod's name, joins, then sees its games. With the helper, announcements carry the pod.
     const seed = privSeed();
-    seed.invites = { pp1_me1: { podId: 'pp1', uid: 'me1', by: 'old1', at: 1 } };
+    seed.invites = { pp1_me1: { podId: 'pp1', uid: 'me1', by: 'old1', at: 1, ok: true } };
     const { page, errors } = await open(browser, { state: 'ok', uid: 'me1', email: 'me@example.com', isAdmin: false }, seed, { __rules: true, __helper: true });
     await page.waitForSelector('article.night', { state: 'attached' });
     await tab(page, 'pods');
@@ -654,6 +654,8 @@ const calls = (page) => page.evaluate(() => window.__calls);
     await page.click('#invites button:has-text("Join pod")');
     await page.waitForSelector('article.night:has-text("Secret Night")', { state: 'attached' });
     check('after joining, its games appear', true);
+    await page.waitForFunction(() => !(window.__store.invites || {}).pp1_me1);
+    check('the invite is used up when you join', true);
     await tab(page, 'games');
     await page.click('#callBtn'); await page.check('#formPods label:has-text("Secret Sweats") input');
     await page.fill('#nTitle', 'Helper Secret'); await page.click('#nightSubmit');
@@ -702,6 +704,67 @@ const calls = (page) => page.evaluate(() => window.__calls);
     check('pod moved back to public with its games', !s.privpods.p2 && s.nights.n2.title === 'Draft Only Night' && !(s['privpods/p2/nights'] || {}).n2);
     check('organizer: no errors', errors.length === 0, errors);
     await page.context().close();
+  }
+  {
+    // Approval: Dana (a member, not the creator) suggests Rob; Rob sees nothing until Sam (the creator) approves.
+    const seed = privSeed();
+    let a = await open(browser, { state: 'ok', uid: 'other1', email: 'dana@example.com', isAdmin: false }, seed, { __rules: true });
+    await a.page.waitForSelector('article.night:has-text("Secret Night")', { state: 'attached' });
+    await tab(a.page, 'pods');
+    await a.page.click('#inviteOpen');
+    await a.page.selectOption('#invPod', { label: 'Secret Sweats' });
+    await a.page.selectOption('#invWho', { label: 'Rob' });
+    await a.page.click('#inviteForm button[type=submit]');
+    await a.page.waitForFunction(() => (window.__store.invites || {}).pp1_me1);
+    let st = await store(a.page);
+    check("a member's invite waits for approval", st.invites.pp1_me1.ok === false && (await a.page.innerText('#toast')).includes('to approve'));
+    check('the member sees it is waiting', (await a.page.innerText('#invites')).includes('Waiting for approval: Rob to Secret Sweats'));
+    await a.page.context().close();
+    let b = await open(browser, { state: 'ok', uid: 'me1', email: 'me@example.com', isAdmin: false }, st, { __rules: true });
+    await b.page.waitForSelector('article.night', { state: 'attached' });
+    await b.page.waitForTimeout(200);
+    await tab(b.page, 'pods');
+    check('not approved yet: the invitee sees nothing', !(await b.page.innerText('#invites')).includes('Secret') && !(await b.page.innerText('#pods')).includes('Secret') && (await b.page.locator('#badgePods').isHidden()));
+    check('not approved yet: no denied requests', b.errors.length === 0, b.errors);
+    await b.page.context().close();
+    const c = await open(browser, { state: 'ok', uid: 'old1', email: 'sam@example.com', isAdmin: false }, st, { __rules: true });
+    await c.page.waitForSelector('article.night', { state: 'attached' });
+    await c.page.waitForFunction(() => document.querySelector('#badgePods') && !document.querySelector('#badgePods').hidden);
+    await tab(c.page, 'pods');
+    check('the creator is asked to approve', (await c.page.innerText('#invites')).includes('Dana wants to invite Rob to Secret Sweats'));
+    await c.page.click('#invites button:has-text("Approve")');
+    await c.page.waitForFunction(() => window.__store.invites.pp1_me1.ok === true);
+    st = await store(c.page);
+    check('approved', true);
+    await c.page.context().close();
+    b = await open(browser, { state: 'ok', uid: 'me1', email: 'me@example.com', isAdmin: false }, st, { __rules: true });
+    await b.page.waitForSelector('article.night', { state: 'attached' });
+    await tab(b.page, 'pods');
+    await b.page.waitForSelector('#invites .invite');
+    check('after approval the invitee sees it', (await b.page.innerText('#invites')).includes('Secret Sweats'));
+    await b.page.click('#invites button:has-text("Join pod")');
+    await b.page.waitForFunction(() => window.__store.people.me1.pods.includes('pp1') && !window.__store.invites.pp1_me1);
+    await b.page.click('.chip:has-text("Secret Sweats")'); await b.page.click('.chip:has-text("Secret Sweats")');
+    await b.page.waitForFunction(() => !window.__store.people.me1.pods.includes('pp1'));
+    await b.page.waitForTimeout(200);
+    check('after leaving there is no way back in without a new invite', !(await b.page.innerText('#pods')).includes('Secret Sweats') && !(await b.page.innerText('#invites')).includes('Secret'));
+    check('approval flow: no errors', b.errors.length === 0, b.errors);
+    await b.page.context().close();
+    // A creator's own invite needs no approval; declining removes a suggestion.
+    const d = await open(browser, { state: 'ok', uid: 'old1', email: 'sam@example.com', isAdmin: false }, Object.assign(privSeed(), { invites: { pp1_me1: { podId: 'pp1', uid: 'me1', by: 'other1', at: 1, ok: false } } }), { __rules: true });
+    await d.page.waitForSelector('article.night', { state: 'attached' });
+    await tab(d.page, 'pods');
+    await d.page.waitForSelector('#invites .approve');
+    await d.page.click('#invites button:has-text("Decline")'); await d.page.click('#invites button:has-text("Tap again to decline")');
+    await d.page.waitForFunction(() => !window.__store.invites.pp1_me1);
+    check('declining removes the suggestion', true);
+    await d.page.click('#inviteOpen');
+    await d.page.selectOption('#invPod', { label: 'Secret Sweats' });
+    await d.page.selectOption('#invWho', { label: 'Rob' });
+    await d.page.click('#inviteForm button[type=submit]');
+    await d.page.waitForFunction(() => (window.__store.invites || {}).pp1_me1);
+    check("the creator's own invite is approved right away", (await store(d.page)).invites.pp1_me1.ok === true);
+    await d.page.context().close();
   }
   {
     // Not the organizer: can't change an existing pod's visibility.

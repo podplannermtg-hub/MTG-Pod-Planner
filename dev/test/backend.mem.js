@@ -7,7 +7,7 @@ var BACKEND = (function () {
   function uid() { return A.uid; }
   function person() { return (store.people || {})[uid()] || {}; }
   function inPod(id) { return (person().pods || []).indexOf(id) >= 0; }
-  function invitedTo(id) { return !!(store.invites || {})[id + '_' + uid()]; }
+  function invitedTo(id) { var x = (store.invites || {})[id + '_' + uid()]; return !!x && x.ok === true; }
   // With window.__rules on, reads the real database rules would refuse fail the same way here.
   function canListCol(col, w) {
     if (!window.__rules || A.isAdmin) return true;
