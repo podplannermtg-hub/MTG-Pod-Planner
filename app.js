@@ -1,0 +1,1144 @@
+// Pod Planner app. You should not need to edit this file; your settings go in config.js.
+/* Firebase backend. Your settings live in config.js, not here. */
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+import {
+  getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword,
+  createUserWithEmailAndPassword, sendEmailVerification, sendPasswordResetEmail, signOut
+} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
+import { getFirestore, collection, doc, getDoc, onSnapshot, addDoc, setDoc, updateDoc, deleteDoc } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+
+const CONFIG = {
+  firebase: ((window.POD_CONFIG || {}).firebase) || {},
+  // Filled in from the members-only database after sign-in.
+  discordWebhook: '',
+  discordPing: ''
+};
+
+let fbAuth = null, fs = null;
+
+const BACKEND = {
+  config: CONFIG,
+  peopleCol: 'people',
+  features: { accounts: true, ics: true },
+  pageUrl: location.href.split('#')[0].split('?')[0],
+  afterAuth() { location.reload(); },
+  auth: {
+    google() { return signInWithPopup(fbAuth, new GoogleAuthProvider()); },
+    signIn(email, pw) { return signInWithEmailAndPassword(fbAuth, email, pw); },
+    async signUp(email, pw) {
+      const cred = await createUserWithEmailAndPassword(fbAuth, email, pw);
+      await sendEmailVerification(cred.user);
+    },
+    resendVerification() { return sendEmailVerification(fbAuth.currentUser); },
+    async checkVerified() {
+      await fbAuth.currentUser.reload();
+      if (!fbAuth.currentUser.emailVerified) return false;
+      await fbAuth.currentUser.getIdToken(true);
+      return true;
+    },
+    resetPassword(email) { return sendPasswordResetEmail(fbAuth, email); },
+    signOut() { return signOut(fbAuth); },
+    requestAccess(name) {
+      const u = fbAuth.currentUser;
+      return setDoc(doc(fs, 'requests', u.uid), { email: (u.email || '').toLowerCase(), name, at: Date.now() });
+    }
+  },
+  async connect() {
+    const key = String(CONFIG.firebase.apiKey || '');
+    if (!key || key.indexOf('PASTE') === 0) return { state: 'setup' };
+    const app = initializeApp(CONFIG.firebase);
+    fbAuth = getAuth(app);
+    fs = getFirestore(app);
+    const user = await new Promise((resolve) => { const stop = onAuthStateChanged(fbAuth, (u) => { stop(); resolve(u); }); });
+    if (!user) return { state: 'signedout' };
+    const base = { uid: user.uid, email: (user.email || '').toLowerCase(), profileName: user.displayName || '' };
+    if (!user.emailVerified) return Object.assign(base, { state: 'unverified' });
+
+    // Only members can read the board. A refusal here means "not on the list" (or blocked).
+    try { await getDoc(doc(fs, 'people', user.uid)); }
+    catch (e) {
+      if (e && e.code === 'permission-denied') {
+        let request = null;
+        try { const r = await getDoc(doc(fs, 'requests', user.uid)); if (r.exists()) request = r.data(); } catch (x) {}
+        return Object.assign(base, { state: 'notmember', request });
+      }
+    }
+    // Only organizers can read the members list.
+    let isAdmin = false;
+    try { await getDoc(doc(fs, 'config', 'members')); isAdmin = true; } catch (e) {}
+
+    const db = {
+      collection(name) {
+        return {
+          onSnapshot(next, err) {
+            return onSnapshot(collection(fs, name), (snap) => {
+              next({ docs: snap.docs.map((d) => ({ id: d.id, data: () => d.data() })), metadata: snap.metadata });
+            }, err);
+          },
+          add(data) { return addDoc(collection(fs, name), data).then((r) => ({ id: r.id })); }
+        };
+      },
+      doc(path) {
+        const ref = doc(fs, ...path.split('/'));
+        return {
+          set: (d) => setDoc(ref, d),
+          update: (d) => updateDoc(ref, d),
+          delete: () => deleteDoc(ref),
+          onSnapshot: (next, err) => onSnapshot(ref, (s) => next({ exists: s.exists(), data: () => s.data(), metadata: s.metadata }), err)
+        };
+      }
+    };
+    return Object.assign(base, { state: 'ok', db, isAdmin, canEdit: isAdmin, canWrite: true });
+  },
+  saveFile(name, mime, text) {
+    const url = URL.createObjectURL(new Blob([text], { type: mime }));
+    const a = document.createElement('a');
+    a.href = url; a.download = name;
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    return Promise.resolve();
+  }
+};
+
+(function () {
+'use strict';
+var $ = function (id) { return document.getElementById(id); };
+var CONFIG = BACKEND.config;
+var PEOPLE = BACKEND.peopleCol;
+var PAGE = BACKEND.pageUrl;
+var ACCOUNTS = !!BACKEND.features.accounts;
+var FORMATS = ['Commander', 'cEDH', 'Draft', 'Sealed', 'Cube', 'Standard', 'Modern', 'Pauper', 'Other'];
+
+function h(tag, props) {
+  var el = document.createElement(tag);
+  if (props) Object.keys(props).forEach(function (k) {
+    var v = props[k];
+    if (v == null || v === false) return;
+    if (k === 'class') el.className = v;
+    else if (k === 'text') el.textContent = v;
+    else if (k.slice(0, 2) === 'on') el.addEventListener(k.slice(2), v);
+    else el.setAttribute(k, v === true ? '' : v);
+  });
+  for (var i = 2; i < arguments.length; i++) {
+    var kid = arguments[i];
+    (Array.isArray(kid) ? kid : [kid]).forEach(function (c) {
+      if (c == null || c === false) return;
+      el.append(c.nodeType ? c : document.createTextNode(String(c)));
+    });
+  }
+  return el;
+}
+
+var S = {
+  db: null, uid: null, state: 'init', isAdmin: false, canWriteFlag: null, forcedRO: false, profileName: '', email: '',
+  pods: [], nights: [], polls: [], people: {}, members: { emails: [], admins: [] }, requests: [],
+  settings: { open: false, blocked: [] }, discord: { webhook: '', ping: '' },
+  loaded: { pods: false, nights: false, polls: false, people: false },
+  confirmed: { pods: false, nights: false, polls: false, people: false },
+  filter: 'all', slow: false, error: false, confirm: null, nickShown: false,
+  formPods: new Set(), mode: 'fixed', editing: null,
+  request: null, authMode: 'signin', authBusy: false, authError: '', authInfo: ''
+};
+
+/* ---------- dates and text ---------- */
+function pad(n) { return String(n).padStart(2, '0'); }
+function fmtYmd(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+function todayStr() { return fmtYmd(new Date()); }
+function parseDate(s) { var p = s.split('-').map(Number); return new Date(p[0], p[1] - 1, p[2]); }
+function addDaysYmd(s, n) { var d = parseDate(s); d.setDate(d.getDate() + n); return fmtYmd(d); }
+function fmtTime(t) {
+  if (!t) return '';
+  var p = t.split(':').map(Number);
+  return (p[0] % 12 || 12) + ':' + pad(p[1]) + ' ' + (p[0] >= 12 ? 'PM' : 'AM');
+}
+function fmtWhen(date, time, long) {
+  var d = parseDate(date);
+  var s = d.toLocaleDateString(undefined, { weekday: long ? 'long' : 'short', month: 'short', day: 'numeric' });
+  return s + (time ? ' at ' + fmtTime(time) : '');
+}
+function makeId() { return Math.random().toString(36).slice(2, 10); }
+function normEmail(s) { return String(s || '').trim().toLowerCase(); }
+
+/* ---------- people and answers ---------- */
+function canWrite() { return !!S.db && !!S.uid && S.canWriteFlag !== false && !S.forcedRO; }
+function me() { return S.uid ? S.people[S.uid] : null; }
+function livePeople() {
+  var blocked = S.settings.blocked || [];
+  return Object.keys(S.people).filter(function (k) { return blocked.indexOf(k) < 0; }).map(function (k) { return S.people[k]; });
+}
+function mineId(by) { return !!S.uid && (by === S.uid || S.isAdmin); }
+function podById() { var m = {}; S.pods.forEach(function (p) { m[p.id] = p; }); return m; }
+function podsSorted() { return S.pods.slice().sort(function (a, b) { return (a.name || '').localeCompare(b.name || ''); }); }
+function podNames(item, pm) { return (item.podIds || []).map(function (id) { return pm[id]; }).filter(Boolean).map(function (p) { return p.name; }); }
+function validVote(v) { return v === 'yes' || v === 'maybe' || v === 'no'; }
+
+function pollVoteOf(person, pollId, optId) {
+  var v = person.pv && person.pv[pollId] && person.pv[pollId][optId];
+  return validVote(v) ? v : undefined;
+}
+function answerOf(person, n) {
+  var r = person.res || {};
+  if (Object.prototype.hasOwnProperty.call(r, n.id)) return r[n.id] === 'none' ? undefined : r[n.id];
+  if (n.fromPoll && n.fromOpt) return pollVoteOf(person, n.fromPoll, n.fromOpt);
+  return undefined;
+}
+function invited(person, item, pm) {
+  var ids = (item.podIds || []).filter(function (id) { return pm[id]; });
+  return ids.length === 0 || ids.some(function (id) { return person.pods && person.pods.indexOf(id) >= 0; });
+}
+function sortNames(list) { return list.sort(function (a, b) { return a.localeCompare(b); }); }
+
+function tally(n, pm) {
+  var c = { yes: [], maybe: [], no: [], wait: [], bring: [] };
+  livePeople().forEach(function (p) {
+    if (!p.nick) return;
+    var st = answerOf(p, n);
+    if (st === 'yes' || st === 'maybe' || st === 'no') {
+      c[st].push(p.nick);
+      var b = p.bring && p.bring[n.id];
+      if (b && st !== 'no') c.bring.push(p.nick + ': ' + b);
+    } else if (invited(p, n, pm)) c.wait.push(p.nick);
+  });
+  sortNames(c.yes); sortNames(c.maybe); sortNames(c.no); sortNames(c.wait); sortNames(c.bring);
+  return c;
+}
+function statusOf(n, c) {
+  var min = n.min || 4;
+  if (c.yes.length >= min) return { cls: 'on', text: 'Game on' };
+  if (c.yes.length + c.maybe.length >= min) return { cls: 'maybe', text: 'On if the maybes show' };
+  return { cls: 'short', text: 'Need ' + (min - c.yes.length) + ' more' };
+}
+function pollTally(p, pm) {
+  var opts = (p.options || []).map(function (o) { return { o: o, yes: [], maybe: [], no: [] }; });
+  var wait = [];
+  livePeople().forEach(function (person) {
+    if (!person.nick) return;
+    var voted = false;
+    opts.forEach(function (x) {
+      var v = pollVoteOf(person, p.id, x.o.id);
+      if (v) { voted = true; x[v].push(person.nick); }
+    });
+    if (!voted && invited(person, p, pm)) wait.push(person.nick);
+  });
+  var best = null;
+  opts.forEach(function (x) {
+    sortNames(x.yes); sortNames(x.maybe); sortNames(x.no);
+    if (!x.yes.length) return;
+    if (!best || x.yes.length > best.yes.length ||
+        (x.yes.length === best.yes.length && x.yes.length + x.maybe.length > best.yes.length + best.maybe.length)) best = x;
+  });
+  return { opts: opts, wait: sortNames(wait), best: best ? best.o.id : null };
+}
+
+/* ---------- toast, errors, saving ---------- */
+var toastTimer;
+function toast(msg) {
+  var t = $('toast'); t.textContent = msg; t.hidden = false;
+  clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.hidden = true; }, 2800);
+}
+function writeError(e) {
+  if (e && e.code === 'invalid_argument') { S.forcedRO = true; renderAll(); return; }
+  if (e && e.code === 'quota_exceeded') { toast('The board is full. Remove old nights or pods first.'); return; }
+  if (e && e.code === 'permission-denied') { toast('Not allowed. Check that the Firestore rules from the README are published.'); return; }
+  toast('That did not save. Check your connection and try again.');
+}
+var chain = Promise.resolve();
+function saveMe(mutate) {
+  chain = chain.then(function () {
+    var cur = S.people[S.uid] ? JSON.parse(JSON.stringify(S.people[S.uid])) : { nick: '', pods: [], res: {} };
+    delete cur.id;
+    mutate(cur);
+    S.people[S.uid] = Object.assign({}, cur, { id: S.uid });
+    renderAll();
+    return S.db.doc(PEOPLE + '/' + S.uid).set(cur);
+  }).catch(writeError);
+  return chain;
+}
+function armConfirm(key, again) {
+  if (S.confirm !== key) {
+    S.confirm = key; again();
+    setTimeout(function () { if (S.confirm === key) { S.confirm = null; again(); } }, 4000);
+    return false;
+  }
+  S.confirm = null; return true;
+}
+
+/* ---------- messages (Discord and copy) ---------- */
+function nightDetails(n, pm) {
+  var lines = [fmtWhen(n.date, n.time, true) + (n.place ? ', ' + n.place : '')];
+  var meta = [];
+  if (n.format) meta.push(n.format);
+  meta.push('need ' + (n.min || 4) + ' players');
+  if (n.host) meta.push('host: ' + n.host);
+  lines.push(meta.join(', '));
+  var pods = podNames(n, pm);
+  if (pods.length) lines.push('Calling: ' + pods.join(', '));
+  if (n.note) lines.push(n.note);
+  return lines;
+}
+function sendDiscord(text) {
+  if (!CONFIG.discordWebhook) return Promise.resolve(false);
+  var ping = CONFIG.discordPing ? CONFIG.discordPing + ' ' : '';
+  return fetch(CONFIG.discordWebhook, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content: (ping + text).slice(0, 1900), allowed_mentions: { parse: CONFIG.discordPing ? ['everyone'] : [] } })
+  }).then(function (r) { return r.ok; }).catch(function () { return false; });
+}
+function showAnnounce(text, sent, heading) {
+  $('announceH').textContent = sent ? (heading || 'Night posted') + ' and sent to Discord' : (heading || 'Night posted');
+  $('announceHint').textContent = sent
+    ? 'Paste the same message into any group chat that is not on Discord.'
+    : 'Paste this into your group chats so people know to open the page.';
+  $('announceText').value = text;
+  $('announce').hidden = false;
+}
+function announce(text, heading) {
+  return sendDiscord(text).then(function (sent) { showAnnounce(text, sent, heading); });
+}
+
+/* ---------- calendar ---------- */
+function calTimes(n) {
+  if (!n.time) {
+    return { allDay: true, s: n.date.replace(/-/g, ''), e: addDaysYmd(n.date, 1).replace(/-/g, '') };
+  }
+  var p = n.time.split(':').map(Number), d = parseDate(n.date);
+  var s = new Date(d.getFullYear(), d.getMonth(), d.getDate(), p[0], p[1]);
+  var hours = /^(Draft|Sealed|Cube)$/.test(n.format || '') ? 4 : 3;
+  var e = new Date(s.getTime() + hours * 3600000);
+  var f = function (x) { return fmtYmd(x).replace(/-/g, '') + 'T' + pad(x.getHours()) + pad(x.getMinutes()) + '00'; };
+  return { allDay: false, s: f(s), e: f(e) };
+}
+function calDescription(n) { return (n.note ? n.note + '\n' : '') + 'Answer here: ' + PAGE; }
+function gcalUrl(n) {
+  var t = calTimes(n);
+  return 'https://calendar.google.com/calendar/render?action=TEMPLATE'
+    + '&text=' + encodeURIComponent(n.title)
+    + '&dates=' + t.s + '/' + t.e
+    + '&location=' + encodeURIComponent(n.place || '')
+    + '&details=' + encodeURIComponent(calDescription(n));
+}
+function icsEscape(s) { return String(s).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n'); }
+function icsText(n) {
+  var t = calTimes(n), now = new Date();
+  var stamp = now.getUTCFullYear() + pad(now.getUTCMonth() + 1) + pad(now.getUTCDate()) + 'T' + pad(now.getUTCHours()) + pad(now.getUTCMinutes()) + pad(now.getUTCSeconds()) + 'Z';
+  return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Pod Planner//EN', 'CALSCALE:GREGORIAN', 'BEGIN:VEVENT',
+    'UID:' + n.id + '@pod-planner', 'DTSTAMP:' + stamp,
+    t.allDay ? 'DTSTART;VALUE=DATE:' + t.s : 'DTSTART:' + t.s,
+    t.allDay ? 'DTEND;VALUE=DATE:' + t.e : 'DTEND:' + t.e,
+    'SUMMARY:' + icsEscape(n.title), 'LOCATION:' + icsEscape(n.place || ''),
+    'DESCRIPTION:' + icsEscape(calDescription(n)), 'END:VEVENT', 'END:VCALENDAR'].join('\r\n') + '\r\n';
+}
+function downloadIcs(n) {
+  Promise.resolve(BACKEND.saveFile((n.title || 'game-night').replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-') + '.ics', 'text/calendar', icsText(n)))
+    .catch(function () { toast('Could not save the calendar file here. Use the Google Calendar link.'); });
+}
+
+/* ---------- board actions ---------- */
+function openNick(focus) {
+  var f = $('nickForm'); f.hidden = false;
+  var i = $('nick');
+  if (!i.value) i.value = (me() && me().nick) || S.profileName || '';
+  if (focus) i.focus();
+}
+function needNick() {
+  if (me() && me().nick) return false;
+  openNick(true); return true;
+}
+function derivedFromPoll(c, n) { return !!(n.fromPoll && n.fromOpt && c.pv && c.pv[n.fromPoll] && validVote(c.pv[n.fromPoll][n.fromOpt])); }
+function answer(n, k) {
+  if (!canWrite() || needNick()) return;
+  var cur = answerOf(me(), n);
+  var before = tally(n, podById()).yes.length;
+  saveMe(function (c) {
+    c.res = c.res || {};
+    if (cur === k) { if (derivedFromPoll(c, n)) c.res[n.id] = 'none'; else delete c.res[n.id]; }
+    else c.res[n.id] = k;
+  });
+  if (k === 'yes' && cur !== 'yes') maybeGameOn(n, before);
+}
+function maybeGameOn(n, before) {
+  var min = n.min || 4;
+  if (!CONFIG.discordWebhook || n.gameOnPosted || before >= min || before + 1 < min) return;
+  S.db.doc('nights/' + n.id).update({ gameOnPosted: true }).catch(function () {});
+  var text = ['Game on: ' + n.title + ' has ' + min + ' of ' + min + ' seats.'].concat(nightDetails(n, podById()), ['Details: ' + PAGE]).join('\n');
+  sendDiscord(text);
+}
+function votePoll(p, oid, k) {
+  if (!canWrite() || needNick()) return;
+  var cur = pollVoteOf(me(), p.id, oid);
+  saveMe(function (c) {
+    c.pv = c.pv || {};
+    var m = c.pv[p.id] = c.pv[p.id] || {};
+    if (cur === k) delete m[oid]; else m[oid] = k;
+    if (!Object.keys(m).length) delete c.pv[p.id];
+  });
+}
+function saveBring(n, text) {
+  var v = text.trim().slice(0, 60);
+  if (((me() && me().bring && me().bring[n.id]) || '') === v) return;
+  saveMe(function (c) { c.bring = c.bring || {}; if (v) c.bring[n.id] = v; else delete c.bring[n.id]; });
+}
+function togglePod(id) {
+  if (!canWrite() || needNick()) return;
+  saveMe(function (c) {
+    c.pods = c.pods || [];
+    var i = c.pods.indexOf(id);
+    if (i >= 0) c.pods.splice(i, 1); else c.pods.push(id);
+  });
+}
+function cancelNight(n) {
+  if (!armConfirm('n:' + n.id, renderNights)) return;
+  S.db.doc('nights/' + n.id).delete().then(function () { toast('Night cancelled'); }).catch(writeError);
+}
+function cancelSeries(n) {
+  if (!armConfirm('s:' + n.id, renderNights)) return;
+  var rest = S.nights.filter(function (x) { return x.series === n.series && x.date >= n.date; });
+  Promise.all(rest.map(function (x) { return S.db.doc('nights/' + x.id).delete(); }))
+    .then(function () { toast(rest.length + ' nights cancelled'); }).catch(writeError);
+}
+function removePod(p) {
+  if (!armConfirm('p:' + p.id, renderPods)) return;
+  S.db.doc('pods/' + p.id).delete().then(function () { toast('Pod removed'); }).catch(writeError);
+}
+function deletePoll(p) {
+  if (!armConfirm('d:' + p.id, renderPolls)) return;
+  S.db.doc('polls/' + p.id).delete().then(function () { toast('Poll deleted'); }).catch(writeError);
+}
+function lockIn(p, o) {
+  if (!canWrite()) return;
+  if (!armConfirm('l:' + p.id + o.id, renderPolls)) return;
+  var doc = {
+    title: p.title, date: o.date, time: o.time || '', place: p.place || '', host: p.host || '', format: p.format,
+    min: p.min || 4, podIds: p.podIds || [], note: p.note || '', fromPoll: p.id, fromOpt: o.id, by: S.uid, at: Date.now()
+  };
+  S.db.collection('nights').add(doc).then(function () {
+    S.db.doc('polls/' + p.id).delete().catch(writeError);
+    var text = ['Locked in: ' + p.title].concat(nightDetails(doc, podById()), ['Confirm your answer: ' + PAGE]).join('\n');
+    toast('Night locked in');
+    return announce(text, 'Night locked in');
+  }).catch(writeError);
+}
+
+/* ---------- accounts ---------- */
+function gated() { return ACCOUNTS && (S.state === 'signedout' || S.state === 'unverified' || S.state === 'notmember'); }
+function authErrorText(e) {
+  var c = (e && e.code) || '';
+  if (c === 'auth/popup-closed-by-user' || c === 'auth/cancelled-popup-request') return '';
+  var map = {
+    'auth/invalid-credential': "That email and password don't match.",
+    'auth/wrong-password': "That email and password don't match.",
+    'auth/user-not-found': "That email and password don't match.",
+    'auth/invalid-email': 'That email address looks wrong.',
+    'auth/missing-email': 'Enter your email address first.',
+    'auth/email-already-in-use': 'That email already has an account. Choose Sign in instead.',
+    'auth/weak-password': 'Use a password with at least 6 characters.',
+    'auth/missing-password': 'Enter a password.',
+    'auth/popup-blocked': 'Your browser blocked the Google window. Allow pop-ups for this site and try again.',
+    'auth/too-many-requests': 'Too many tries. Wait a few minutes and try again.',
+    'auth/unauthorized-domain': "This site's address isn't on Firebase's Authorized domains list yet. See the README.",
+    'auth/operation-not-allowed': "That sign-in method isn't turned on in Firebase yet. See the README.",
+    'auth/network-request-failed': 'Could not reach Firebase. Check your connection.',
+    'permission-denied': 'Could not send that. Check that the latest Firestore rules are published.'
+  };
+  return map[c] || 'That did not work. Try again.';
+}
+function authAct(run, onOk) {
+  if (S.authBusy) return;
+  S.authBusy = true; S.authError = ''; S.authInfo = ''; renderGate();
+  Promise.resolve().then(run).then(function (r) {
+    S.authBusy = false;
+    if (onOk) onOk(r); else BACKEND.afterAuth();
+    renderGate();
+  }, function (e) { S.authBusy = false; S.authError = authErrorText(e); renderGate(); });
+}
+function signOutNow() { authAct(function () { return BACKEND.auth.signOut(); }); }
+
+function gateMessages() {
+  return [S.authError ? h('p', { class: 'err', role: 'alert', text: S.authError }) : null,
+    S.authInfo ? h('p', { class: 'ok', text: S.authInfo }) : null];
+}
+function gateSignedOut() {
+  var A = BACKEND.auth, signup = S.authMode === 'signup';
+  var form = h('form', { novalidate: true, onsubmit: function (e) {
+    e.preventDefault();
+    var em = normEmail($('authEmail').value), pw = $('authPw').value;
+    if (!em) { S.authError = 'Enter your email address.'; renderGate(); return; }
+    if (!pw) { S.authError = 'Enter a password.'; renderGate(); return; }
+    authAct(function () { return signup ? A.signUp(em, pw) : A.signIn(em, pw); });
+  } },
+    h('div', { class: 'seg', role: 'group', 'aria-label': 'Sign in or create an account' },
+      h('button', { type: 'button', 'aria-pressed': String(!signup), onclick: function () { S.authMode = 'signin'; S.authError = ''; S.authInfo = ''; renderGate(); } }, 'Sign in'),
+      h('button', { type: 'button', 'aria-pressed': String(signup), onclick: function () { S.authMode = 'signup'; S.authError = ''; S.authInfo = ''; renderGate(); } }, 'Create account')),
+    h('div', { class: 'field' }, h('label', { 'for': 'authEmail', text: 'Email' }),
+      h('input', { id: 'authEmail', type: 'email', autocomplete: 'email', inputmode: 'email' })),
+    h('div', { class: 'field' }, h('label', { 'for': 'authPw', text: signup ? 'Choose a password' : 'Password' }),
+      h('input', { id: 'authPw', type: 'password', minlength: '6', autocomplete: signup ? 'new-password' : 'current-password' })),
+    gateMessages(),
+    h('div', { class: 'row' },
+      h('button', { class: 'primary', type: 'submit', id: 'authSubmit', disabled: S.authBusy }, signup ? 'Create account' : 'Sign in'),
+      signup ? null : h('button', { type: 'button', class: 'link', onclick: function () {
+        var em = normEmail($('authEmail').value);
+        if (!em) { S.authError = 'Enter your email above, then tap Forgot password.'; renderGate(); return; }
+        authAct(function () { return A.resetPassword(em); }, function () { S.authInfo = 'If ' + em + ' has an account, a reset link is on its way. Check spam too.'; });
+      } }, 'Forgot password?')),
+    signup ? h('p', { class: 'hint', text: "We'll email you a link to confirm the address. Use the same address your organizer has on the list." }) : null);
+  return [
+    h('h2', { text: 'Sign in to Pod Planner' }),
+    h('p', { class: 'hint', text: 'Only invited players can see game nights. Sign in with the account your organizer added, or sign in and ask to join.' }),
+    h('button', { type: 'button', class: 'google', id: 'googleBtn', disabled: S.authBusy, onclick: function () { authAct(function () { return A.google(); }); } }, 'Continue with Google'),
+    h('div', { class: 'or', text: 'or use email' }),
+    form
+  ];
+}
+function gateUnverified() {
+  var A = BACKEND.auth;
+  return [
+    h('h2', { text: 'Check your inbox' }),
+    h('p', { text: 'We sent a confirmation link to ' + S.email + '. Tap it, then come back here.' }),
+    gateMessages(),
+    h('div', { class: 'row' },
+      h('button', { type: 'button', class: 'primary', id: 'verifiedBtn', disabled: S.authBusy, onclick: function () {
+        authAct(function () { return A.checkVerified(); }, function (ok) {
+          if (ok) BACKEND.afterAuth(); else S.authInfo = "It isn't confirmed yet. Tap the link in the email, then try again.";
+        });
+      } }, "I've confirmed it"),
+      h('button', { type: 'button', class: 'ghost', disabled: S.authBusy, onclick: function () {
+        authAct(function () { return A.resendVerification(); }, function () { S.authInfo = 'Sent again. Check your spam folder too.'; });
+      } }, 'Send it again')),
+    h('button', { type: 'button', class: 'link', onclick: signOutNow }, 'Use a different account')
+  ];
+}
+function gateNotMember() {
+  var A = BACKEND.auth;
+  var out = [
+    h('h2', { text: "You're not on the list yet" }),
+    h('p', { text: 'Signed in as ' + S.email + '. Only people an organizer has added can see game nights.' })
+  ];
+  if (S.request) {
+    out.push(h('p', { class: 'ok', text: 'Request sent as ' + (S.request.name || S.email) + '. Once an organizer approves it, tap Check again.' }));
+    out.push(h('div', { class: 'row' }, h('button', { type: 'button', class: 'primary', id: 'checkAgain', onclick: function () { BACKEND.afterAuth(); } }, 'Check again')));
+  } else {
+    out.push(h('form', { onsubmit: function (e) {
+      e.preventDefault();
+      var name = $('joinName').value.trim().slice(0, 40);
+      if (!name) { S.authError = 'Add your name so the organizer knows who you are.'; renderGate(); return; }
+      authAct(function () { return A.requestAccess(name); }, function () { S.request = { name: name, email: S.email }; });
+    } },
+      h('div', { class: 'field' }, h('label', { 'for': 'joinName', text: 'Your name' }),
+        h('input', { id: 'joinName', type: 'text', maxlength: '40', autocomplete: 'name', value: S.profileName || '' })),
+      gateMessages(),
+      h('div', { class: 'row' }, h('button', { type: 'submit', class: 'primary', id: 'askJoin', disabled: S.authBusy }, 'Ask to join'))));
+  }
+  out.push(h('button', { type: 'button', class: 'link', onclick: signOutNow }, 'Use a different account'));
+  if (S.request) out.splice(out.length - 1, 0, gateMessages());
+  return out;
+}
+function renderGate() {
+  var g = gated();
+  $('gate').hidden = !g; $('board').hidden = g;
+  if (!g) return;
+  keepFocus(function () {
+    var parts = S.state === 'signedout' ? gateSignedOut() : S.state === 'unverified' ? gateUnverified() : gateNotMember();
+    $('gate').replaceChildren.apply($('gate'), [].concat.apply([], parts).filter(Boolean));
+  });
+}
+
+/* ---------- members (organizers only) ---------- */
+function saveMembers(m) {
+  m.emails = Array.from(new Set(m.emails)).sort();
+  m.admins = Array.from(new Set(m.admins)).sort();
+  S.members = m; renderMembers();
+  return S.db.doc('config/members').set({ emails: m.emails, admins: m.admins });
+}
+function cloneMembers() { return { emails: (S.members.emails || []).slice(), admins: (S.members.admins || []).slice() }; }
+function addMember(raw) {
+  var e = normEmail(raw);
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) { toast('That email address looks wrong.'); return Promise.resolve(false); }
+  var m = cloneMembers();
+  if (m.emails.indexOf(e) >= 0) { toast(e + ' is already on the list'); return Promise.resolve(true); }
+  m.emails.push(e);
+  return saveMembers(m).then(function () { toast('Added ' + e); return true; }, function (err) { writeError(err); return false; });
+}
+function approve(r) {
+  addMember(r.email).then(function (ok) { if (ok) S.db.doc('requests/' + r.id).delete().catch(writeError); });
+}
+function dismiss(r) {
+  if (!armConfirm('r:' + r.id, renderMembers)) return;
+  S.db.doc('requests/' + r.id).delete().then(function () { toast('Request dismissed'); }).catch(writeError);
+}
+function removeMember(e) {
+  if (!armConfirm('m:' + e, renderMembers)) return;
+  var m = cloneMembers();
+  m.emails = m.emails.filter(function (x) { return x !== e; });
+  m.admins = m.admins.filter(function (x) { return x !== e; });
+  saveMembers(m).then(function () { toast('Removed ' + e); }).catch(writeError);
+}
+function toggleAdmin(e) {
+  var m = cloneMembers();
+  if (m.admins.indexOf(e) >= 0) m.admins = m.admins.filter(function (x) { return x !== e; });
+  else { m.admins.push(e); if (m.emails.indexOf(e) < 0) m.emails.push(e); }
+  saveMembers(m).catch(writeError);
+}
+var WEBHOOK_RE = /^https:\/\/(discord|discordapp)\.com\/api\/webhooks\/[0-9]+\/[A-Za-z0-9_-]+$/;
+function applyDiscord(d) {
+  S.discord = { webhook: d.webhook || '', ping: d.ping || '' };
+  CONFIG.discordWebhook = S.discord.webhook;
+  CONFIG.discordPing = S.discord.ping;
+}
+function saveSettings(s) {
+  S.settings = s; renderAll();
+  return S.db.doc('config/settings').set({ open: !!s.open, blocked: s.blocked || [] });
+}
+function setOpen(open) {
+  if (!!S.settings.open === open) return;
+  if (open && !armConfirm('open', renderMembers)) return;
+  saveSettings({ open: open, blocked: (S.settings.blocked || []).slice() })
+    .then(function () { toast(open ? 'The board is open to anyone who signs in' : 'The board is invite only again'); }).catch(writeError);
+}
+function toggleBlock(p) {
+  var b = (S.settings.blocked || []).slice(), i = b.indexOf(p.id);
+  if (i < 0) { if (!armConfirm('b:' + p.id, renderMembers)) return; b.push(p.id); } else b.splice(i, 1);
+  saveSettings({ open: !!S.settings.open, blocked: b })
+    .then(function () { toast((p.nick || 'That person') + (i < 0 ? ' is blocked' : ' is unblocked')); }).catch(writeError);
+}
+function saveDiscord(webhook, ping) {
+  webhook = String(webhook || '').trim();
+  if (webhook && !WEBHOOK_RE.test(webhook)) { toast("That isn't a Discord webhook address. Copy it from Discord again."); return; }
+  var d = { webhook: webhook, ping: ping || '' };
+  applyDiscord(d); renderMembers();
+  S.db.doc('config/discord').set(d).then(function () { toast(webhook ? 'Discord connected' : 'Discord disconnected'); }).catch(writeError);
+}
+function renderMembers() {
+  var sec = $('membersSec');
+  sec.hidden = !(ACCOUNTS && S.isAdmin && S.state === 'ok');
+  if (sec.hidden) return;
+  var open = !!S.settings.open, openArmed = S.confirm === 'open';
+  document.querySelectorAll('#openSeg button').forEach(function (b) {
+    var v = b.dataset.open === 'true';
+    b.setAttribute('aria-pressed', String(v === open));
+    if (v) b.textContent = openArmed ? 'Tap again to open it' : 'Anyone who signs in';
+  });
+  $('openHint').textContent = open
+    ? 'Anyone who signs in with a confirmed email can see and use the board. Block people below if needed. The invite list is kept for when you switch back. Discord settings stay visible only to invited people.'
+    : 'Only people on the list below, plus organizers, can see the board. Everyone else can only ask to join.';
+
+  var pl = $('peopleList'); pl.replaceChildren();
+  var blocked = S.settings.blocked || [];
+  var others = Object.keys(S.people).map(function (k) { return S.people[k]; })
+    .filter(function (p) { return p.id !== S.uid && p.nick; })
+    .sort(function (a, b) { return a.nick.localeCompare(b.nick); });
+  if (!others.length) pl.append(h('p', { class: 'hint', text: 'Nobody else has joined yet.' }));
+  others.forEach(function (p) {
+    var isBlocked = blocked.indexOf(p.id) >= 0, armed = S.confirm === 'b:' + p.id;
+    pl.append(h('div', { class: 'mrow' },
+      h('div', { class: 'minfo' }, h('b', { text: p.nick }), isBlocked ? h('span', { class: 'tagline', text: 'Blocked' }) : null),
+      h('div', { class: 'mact' }, h('button', { type: 'button', class: 'link' + (armed ? ' danger' : ''), onclick: function () { toggleBlock(p); } },
+        isBlocked ? 'Unblock' : (armed ? 'Tap again to block' : 'Block')))));
+  });
+
+  $('discordHint').textContent = S.discord.webhook
+    ? 'Connected. New nights, polls, updates and Game on messages go to your channel. Only invited members and organizers can read this setting.'
+    : 'Not connected. In Discord: Edit Channel, Integrations, Webhooks, New Webhook, Copy Webhook URL. Paste it here.';
+  if (document.activeElement !== $('discWebhook')) $('discWebhook').value = S.discord.webhook;
+  if (document.activeElement !== $('discPing')) $('discPing').value = S.discord.ping;
+  $('discRemove').hidden = !S.discord.webhook;
+  $('discRemove').textContent = S.confirm === 'dr' ? 'Tap again to disconnect' : 'Disconnect';
+
+  var rq = $('requests'); rq.replaceChildren();
+  var reqs = S.requests.slice().sort(function (a, b) { return (a.at || 0) - (b.at || 0); });
+  if (!reqs.length) rq.append(h('p', { class: 'hint', text: 'No one is waiting.' }));
+  reqs.forEach(function (r) {
+    var armed = S.confirm === 'r:' + r.id;
+    rq.append(h('div', { class: 'mrow' },
+      h('div', { class: 'minfo' }, h('b', { text: r.name || 'No name given' }), h('span', { text: r.email })),
+      h('div', { class: 'mact' },
+        h('button', { type: 'button', class: 'primary small', onclick: function () { approve(r); } }, 'Approve'),
+        h('button', { type: 'button', class: 'link' + (armed ? ' danger' : ''), onclick: function () { dismiss(r); } }, armed ? 'Tap again to dismiss' : 'Dismiss'))));
+  });
+  var ml = $('memberList'); ml.replaceChildren();
+  var all = Array.from(new Set((S.members.emails || []).concat(S.members.admins || []))).sort();
+  if (!all.length) ml.append(h('p', { class: 'hint', text: 'Nobody on the list yet. Approve a request or add an email below.' }));
+  all.forEach(function (e) {
+    var admin = (S.members.admins || []).indexOf(e) >= 0, armed = S.confirm === 'm:' + e;
+    ml.append(h('div', { class: 'mrow' },
+      h('div', { class: 'minfo' }, h('b', { text: e }), admin ? h('span', { text: 'Organizer: can approve people and edit any night' }) : null),
+      h('div', { class: 'mact' },
+        h('button', { type: 'button', class: 'link', onclick: function () { toggleAdmin(e); } }, admin ? 'Make regular member' : 'Make organizer'),
+        h('button', { type: 'button', class: 'link' + (armed ? ' danger' : ''), onclick: function () { removeMember(e); } }, armed ? 'Tap again to remove' : 'Remove'))));
+  });
+}
+
+/* ---------- render ---------- */
+function renderNotice() {
+  var msg = '';
+  if (S.state === 'setup') msg = 'Setup is not finished. Open index.html, paste your Firebase settings into CONFIG, and reload. The README has the steps.';
+  else if (gated()) msg = '';
+  else if (S.state === 'signedout') msg = 'Sign in to claude.ai to see and answer game nights.';
+  else if (S.state === 'ok' && !S.uid) msg = 'You can look at the board, but this view has no identity to answer with.';
+  else if (S.state === 'ok' && !canWrite()) msg = 'You can see the board but not answer or post. Ask whoever set it up to share it with you as a Contributor.';
+  else if (S.error) msg = 'The connection to the board was interrupted. Reload the page to reconnect.';
+  else if (S.slow) msg = 'Still reaching the board. What you see may be out of date.';
+  $('notice').hidden = !msg; $('notice').textContent = msg;
+}
+function renderMe() {
+  var box = $('me'); box.replaceChildren();
+  if (gated()) {
+    if (S.state !== 'signedout') box.append(h('button', { type: 'button', class: 'link', onclick: signOutNow }, 'Sign out'));
+    return;
+  }
+  if (!canWrite()) return;
+  var m = me();
+  box.append(m && m.nick
+    ? h('button', { class: 'me-btn', type: 'button', onclick: function () { openNick(true); } }, h('span', { text: m.nick }), h('small', { text: 'Edit' }))
+    : h('button', { class: 'me-btn', type: 'button', onclick: function () { openNick(true); } }, 'Set your name'));
+  if (ACCOUNTS) box.append(h('button', { type: 'button', class: 'link', id: 'signOutBtn', onclick: signOutNow }, 'Sign out'));
+}
+function memberCount(id) {
+  return livePeople().filter(function (p) { return p.nick && p.pods && p.pods.indexOf(id) >= 0; }).length;
+}
+function renderPods() {
+  var box = $('pods'); box.replaceChildren();
+  if (!S.loaded.pods) { box.append(h('p', { class: 'hint', text: S.db ? 'Loading pods…' : '' })); return; }
+  if (!S.pods.length) {
+    box.append(h('p', { class: 'hint', text: 'No pods yet. Add the groups you play with, like Tuesday Commander or the shop draft crew.' }));
+    return;
+  }
+  var mine = new Set((me() && me().pods) || []);
+  podsSorted().forEach(function (p) {
+    var on = mine.has(p.id);
+    var chip = h('button', {
+      type: 'button', class: 'chip' + (on ? ' on' : ''), 'aria-pressed': String(on), disabled: !canWrite(),
+      title: on ? 'You play in this pod. Tap to leave.' : 'Tap to join this pod.',
+      onclick: function () { togglePod(p.id); }
+    }, h('i', { class: 'dot m-' + p.mana }), p.name, h('span', { class: 'count', text: String(memberCount(p.id)) }), on ? h('span', { class: 'chk', 'aria-hidden': 'true', text: '✓' }) : null);
+    var wrap = h('span', { class: 'chipwrap' }, chip);
+    if (canWrite() && mineId(p.by)) {
+      var armed = S.confirm === 'p:' + p.id;
+      wrap.append(h('button', { type: 'button', class: 'link' + (armed ? ' danger' : ''), 'aria-label': 'Remove pod ' + p.name, onclick: function () { removePod(p); } }, armed ? 'Remove?' : '×'));
+    }
+    box.append(wrap);
+  });
+}
+function renderFormPods() {
+  var box = $('formPods'); box.replaceChildren();
+  if (!S.pods.length) { box.append(h('p', { class: 'hint', text: 'No pods yet. Leave this empty to call everyone, or add a pod first.' })); return; }
+  podsSorted().forEach(function (p) {
+    var id = 'fp_' + p.id;
+    var cb = h('input', { type: 'checkbox', id: id, checked: S.formPods.has(p.id), onchange: function (e) {
+      if (e.target.checked) S.formPods.add(p.id); else S.formPods.delete(p.id);
+    } });
+    box.append(h('label', { class: 'pick', 'for': id }, cb, h('i', { class: 'dot m-' + p.mana }), p.name));
+  });
+}
+function renderFilter() {
+  document.querySelectorAll('#filter button').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.f === S.filter)); });
+}
+function keepFocus(fn) {
+  var a = document.activeElement, id = a && a.id, v = null, s = null, e = null;
+  if (a && 'value' in a) { v = a.value; try { s = a.selectionStart; e = a.selectionEnd; } catch (x) {} }
+  fn();
+  if (id) {
+    var el = $(id);
+    if (el && el !== a) {
+      if (v != null && el.value !== v) el.value = v;
+      el.focus();
+      try { if (s != null) el.setSelectionRange(s, e); } catch (x) {}
+    }
+  }
+}
+function visibleFor(item, pm) {
+  if (S.filter !== 'mine') return true;
+  var mp = new Set((me() && me().pods) || []);
+  var ids = (item.podIds || []).filter(function (id) { return pm[id]; });
+  return ids.length === 0 || ids.some(function (id) { return mp.has(id); });
+}
+
+function pollCard(p, pm) {
+  var t = pollTally(p, pm);
+  var owner = canWrite() && mineId(p.by);
+  var tags = (p.podIds || []).map(function (id) { return pm[id]; }).filter(Boolean).map(function (x) {
+    return h('span', { class: 'tag' }, h('i', { class: 'dot m-' + x.mana }), x.name);
+  });
+  var opts = t.opts.map(function (x) {
+    var o = x.o, mv = me() ? pollVoteOf(me(), p.id, o.id) : undefined;
+    var when = fmtWhen(o.date, o.time);
+    var who = [];
+    if (x.yes.length) who.push('Can: ' + x.yes.join(', '));
+    if (x.maybe.length) who.push('Maybe: ' + x.maybe.join(', '));
+    if (x.no.length) who.push('No: ' + x.no.join(', '));
+    var votes = h('div', { class: 'votes', role: 'group', 'aria-label': 'Your answer for ' + when });
+    [['yes', 'Can'], ['maybe', 'Maybe'], ['no', 'No']].forEach(function (r) {
+      votes.append(h('button', { type: 'button', class: 'vb ' + r[0], 'aria-pressed': String(mv === r[0]), disabled: !canWrite(), onclick: function () { votePoll(p, o.id, r[0]); } }, r[1]));
+    });
+    var armed = S.confirm === 'l:' + p.id + o.id;
+    return h('div', { class: 'opt' + (t.best === o.id ? ' best' : '') },
+      h('div', { class: 'optinfo' },
+        h('div', { class: 'when' }, when, t.best === o.id ? h('span', { class: 'pill on', text: 'Best so far' }) : null),
+        h('div', { class: 'optcount', text: x.yes.length + ' can · ' + x.maybe.length + ' maybe' }),
+        who.length ? h('div', { class: 'who', text: who.join('   ') }) : null,
+        owner ? h('div', null, h('button', { type: 'button', class: 'link' + (armed ? ' danger' : ''), onclick: function () { lockIn(p, o); } }, armed ? 'Tap again to lock in this date' : 'Lock in this date')) : null),
+      votes);
+  });
+  var meta = [];
+  if (p.format) meta.push(p.format);
+  meta.push('need ' + (p.min || 4));
+  if (p.place) meta.push(p.place);
+  if (p.host) meta.push('host: ' + p.host);
+  var delArmed = S.confirm === 'd:' + p.id;
+  return h('article', { class: 'poll' },
+    h('span', { class: 'kicker', text: 'Voting open' }),
+    h('h3', { text: p.title }),
+    h('div', { class: 'meta' }, meta.map(function (m) { return h('span', { text: m }); })),
+    tags.length ? h('div', { class: 'tags' }, tags) : null,
+    p.note ? h('p', { class: 'note', text: p.note }) : null,
+    h('div', { class: 'opts' }, opts),
+    t.wait.length ? h('p', { class: 'hint', text: 'Waiting on: ' + t.wait.join(', ') }) : null,
+    owner ? h('div', { class: 'foot' }, h('span'), h('button', { type: 'button', class: 'link' + (delArmed ? ' danger' : ''), onclick: function () { deletePoll(p); } }, delArmed ? 'Tap again to delete this poll' : 'Delete poll')) : null);
+}
+function renderPolls() {
+  var box = $('polls'); box.replaceChildren();
+  if (!S.loaded.polls) return;
+  var pm = podById();
+  var list = S.polls.filter(function (p) { return visibleFor(p, pm); }).sort(function (a, b) { return (a.at || 0) - (b.at || 0); });
+  list.forEach(function (p) { box.append(pollCard(p, pm)); });
+}
+
+function nightCard(n, pm) {
+  var c = tally(n, pm), st = statusOf(n, c), min = n.min || 4;
+  var d = parseDate(n.date);
+  var mineAns = me() ? answerOf(me(), n) : undefined;
+  var seatsN = Math.max(min, c.yes.length);
+  var seats = h('div', { class: 'seats', role: 'img', 'aria-label': c.yes.length + ' in, ' + c.maybe.length + ' maybe, ' + min + ' needed' });
+  for (var i = 0; i < seatsN; i++) {
+    seats.append(h('span', { class: 'seat ' + (i < c.yes.length ? 'yes' : (i < c.yes.length + c.maybe.length ? 'maybe' : '')) }));
+  }
+  var tags = (n.podIds || []).map(function (id) { return pm[id]; }).filter(Boolean).map(function (p) {
+    return h('span', { class: 'tag' }, h('i', { class: 'dot m-' + p.mana }), p.name);
+  });
+  var roster = h('dl', { class: 'roster' });
+  [['yes', 'In', c.yes], ['maybe', 'Maybe', c.maybe], ['no', 'Out', c.no], ['wait', 'Waiting', c.wait], ['bring', 'Bringing', c.bring]].forEach(function (r) {
+    if (r[2].length) roster.append(h('div', { class: r[0] }, h('dt', { text: r[1] }), h('dd', { text: r[2].join(r[0] === 'bring' ? '; ' : ', ') })));
+  });
+  var row = h('div', { class: 'rsvp', role: 'group', 'aria-label': 'Your answer for ' + n.title });
+  [['yes', "I'm in"], ['maybe', 'Maybe'], ['no', "Can't"]].forEach(function (r) {
+    row.append(h('button', { type: 'button', class: 'rs ' + r[0], 'aria-pressed': String(mineAns === r[0]), disabled: !canWrite(), onclick: function () { answer(n, r[0]); } }, r[1]));
+  });
+  var bring = null;
+  if (canWrite() && (mineAns === 'yes' || mineAns === 'maybe')) {
+    var bid = 'br_' + n.id;
+    bring = h('div', { class: 'bring' },
+      h('label', { 'for': bid, text: 'Bringing something?' }),
+      h('input', {
+        id: bid, type: 'text', maxlength: '60', placeholder: 'Chips, spare playmat…',
+        value: (me() && me().bring && me().bring[n.id]) || '',
+        onchange: function (e) { saveBring(n, e.target.value); },
+        onkeydown: function (e) { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }
+      }));
+  }
+  var cal = h('div', { class: 'cal' },
+    h('a', { class: 'link', href: gcalUrl(n), target: '_blank', rel: 'noopener' }, 'Google Calendar'),
+    BACKEND.features.ics ? h('button', { type: 'button', class: 'link', onclick: function () { downloadIcs(n); } }, 'Apple or Outlook') : null);
+  var owner = h('div', { class: 'owner' });
+  if (canWrite() && mineId(n.by)) {
+    var a1 = S.confirm === 'n:' + n.id, a2 = S.confirm === 's:' + n.id;
+    owner.append(h('button', { type: 'button', class: 'link', onclick: function () { startEdit(n); } }, 'Edit'));
+    owner.append(h('button', { type: 'button', class: 'link' + (a1 ? ' danger' : ''), onclick: function () { cancelNight(n); } }, a1 ? 'Tap again to cancel this night' : 'Cancel night'));
+    if (n.series) owner.append(h('button', { type: 'button', class: 'link' + (a2 ? ' danger' : ''), onclick: function () { cancelSeries(n); } }, a2 ? 'Tap again to cancel this and later nights' : 'Cancel this and later'));
+  }
+  return h('article', { class: 'night' },
+    h('div', { class: 'date', 'aria-hidden': 'true' },
+      h('span', { class: 'mo', text: d.toLocaleDateString(undefined, { month: 'short' }) }),
+      h('span', { class: 'dd', text: String(d.getDate()) }),
+      h('span', { class: 'wd', text: d.toLocaleDateString(undefined, { weekday: 'short' }) })),
+    h('div', { class: 'body' },
+      h('div', { class: 'titlerow' }, h('h3', { text: n.title }), h('span', { class: 'pill ' + st.cls, text: st.text })),
+      h('div', { class: 'meta' },
+        n.time ? h('span', null, h('b', { text: fmtTime(n.time) })) : null,
+        h('span', { text: n.format || '' }),
+        n.place ? h('span', { text: n.place }) : null,
+        n.host ? h('span', { text: 'Host: ' + n.host }) : null,
+        n.series ? h('span', { text: 'Weekly' }) : null),
+      tags.length ? h('div', { class: 'tags' }, tags) : null,
+      n.note ? h('p', { class: 'note', text: n.note }) : null,
+      h('div', { class: 'seatrow' }, seats, h('span', { class: 'seatcount', text: c.yes.length + ' of ' + min + ' seats' })),
+      roster.children.length ? roster : null,
+      row, bring,
+      h('div', { class: 'foot' }, cal, owner)));
+}
+function renderNights() {
+  keepFocus(function () {
+    var box = $('nights'); box.replaceChildren();
+    if (!S.loaded.nights) { box.append(h('p', { class: 'empty', text: S.db ? 'Loading the board…' : 'Nothing to show until setup is finished.' })); return; }
+    var pm = podById(), today = todayStr();
+    var key = function (n) { return (n.date || '') + (n.time || ''); };
+    var up = S.nights.filter(function (n) { return n.date >= today; }).sort(function (a, b) { return key(a).localeCompare(key(b)); });
+    var past = S.nights.filter(function (n) { return n.date < today; }).sort(function (a, b) { return key(b).localeCompare(key(a)); });
+    up = up.filter(function (n) { return visibleFor(n, pm); });
+    if (!up.length && !S.polls.length) {
+      if (!S.nights.length) box.append(h('div', { class: 'empty' }, h('h3', { text: 'No nights on the board yet' }), h('p', { text: 'Tap Call a night, pick the pods, and everyone can answer from here.' })));
+      else if (S.filter === 'mine') box.append(h('div', { class: 'empty' }, h('h3', { text: 'Nothing called for your pods' }), h('p', { text: 'Switch to All to see every upcoming night, or join a pod above.' })));
+      else box.append(h('div', { class: 'empty' }, h('h3', { text: 'No upcoming nights' }), h('p', { text: 'Call the next one.' })));
+    }
+    up.forEach(function (n) { box.append(nightCard(n, pm)); });
+
+    var pw = $('pastWrap'), pb = $('past'); pb.replaceChildren();
+    pw.hidden = !past.length;
+    $('pastSum').textContent = 'Earlier nights (' + past.length + ')';
+    past.slice(0, 20).forEach(function (n) {
+      var c = tally(n, pm), d = parseDate(n.date);
+      pb.append(h('div', { class: 'pastrow' },
+        h('span', { text: n.title + ' · ' + d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) }),
+        h('span', { text: c.yes.length + ' were in' })));
+    });
+  });
+}
+function maybeOpenNick() {
+  if (S.nickShown || !canWrite() || !S.loaded.people) return;
+  S.nickShown = true;
+  if (!(me() && me().nick)) openNick(false);
+}
+function updateControls() {
+  var w = canWrite();
+  $('callBtn').disabled = !w; $('addPodBtn').disabled = !w;
+  if (!w) { $('nightForm').hidden = true; $('podForm').hidden = true; $('nickForm').hidden = true; }
+}
+function renderAll() {
+  renderGate(); renderNotice(); renderMe(); renderPods(); renderFormPods(); renderFilter(); renderPolls(); renderNights(); renderMembers(); updateControls(); maybeOpenNick();
+}
+
+/* ---------- night and poll form ---------- */
+function setMode(m) {
+  S.mode = m;
+  document.querySelectorAll('#modeSeg button').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.m === m)); });
+  $('fixedFields').hidden = m !== 'fixed';
+  $('pollFields').hidden = m !== 'poll';
+  $('nightSubmit').textContent = S.editing ? 'Save changes' : (m === 'poll' ? 'Post poll' : 'Post night');
+}
+function addPollRow(date, time) {
+  var row = h('div', { class: 'optrow' },
+    h('input', { type: 'date', value: date || '', 'aria-label': 'Date option' }),
+    h('input', { type: 'time', value: time || '19:00', 'aria-label': 'Start time for this date' }),
+    h('button', { type: 'button', class: 'link', onclick: function () { if ($('pollRows').children.length > 2) row.remove(); else toast('A poll needs at least two dates.'); } }, 'Remove'));
+  $('pollRows').append(row);
+}
+function resetNightForm() {
+  $('nightForm').reset();
+  S.editing = null;
+  var t = todayStr();
+  $('nDate').value = t; $('nTime').value = '19:00'; $('nMin').value = '4'; $('nRepeat').value = '1';
+  $('pollRows').replaceChildren();
+  addPollRow(addDaysYmd(t, 2)); addPollRow(addDaysYmd(t, 3)); addPollRow(addDaysYmd(t, 4));
+  S.formPods.clear(); renderFormPods();
+  $('formH').textContent = 'Call a night';
+  $('modeSeg').hidden = false; $('repeatField').hidden = false;
+  setMode('fixed');
+}
+function startEdit(n) {
+  resetNightForm();
+  S.editing = n.id;
+  $('nTitle').value = n.title || ''; $('nDate').value = n.date; $('nTime').value = n.time || '';
+  $('nFormat').value = n.format || 'Commander'; $('nMin').value = n.min || 4;
+  $('nPlace').value = n.place || ''; $('nHost').value = n.host || ''; $('nNote').value = n.note || '';
+  S.formPods = new Set(n.podIds || []); renderFormPods();
+  $('formH').textContent = 'Edit night';
+  $('modeSeg').hidden = true; $('repeatField').hidden = true;
+  setMode('fixed');
+  var f = $('nightForm'); f.hidden = false;
+  if (f.scrollIntoView) f.scrollIntoView({ block: 'start' });
+  $('nTitle').focus();
+}
+function formCommon() {
+  var format = $('nFormat').value;
+  return {
+    title: $('nTitle').value.trim() || format + ' night',
+    format: format,
+    min: Math.min(12, Math.max(2, parseInt($('nMin').value, 10) || 4)),
+    place: $('nPlace').value.trim(), host: $('nHost').value.trim(),
+    podIds: Array.from(S.formPods), note: $('nNote').value.trim()
+  };
+}
+function submitNights() {
+  var date = $('nDate').value;
+  if (!date) { toast('Pick a date first.'); return; }
+  if (needNick()) return;
+  var common = formCommon(), time = $('nTime').value || '';
+  var repeat = parseInt($('nRepeat').value, 10) || 1;
+  var series = repeat > 1 ? makeId() : '';
+  var docs = [];
+  for (var i = 0; i < repeat; i++) {
+    var d = Object.assign({}, common, { date: addDaysYmd(date, 7 * i), time: time, by: S.uid, at: Date.now() + i });
+    if (series) d.series = series;
+    docs.push(d);
+  }
+  Promise.all(docs.map(function (d) { return S.db.collection('nights').add(d); })).then(function (refs) {
+    saveMe(function (c) { c.res = c.res || {}; refs.forEach(function (r) { c.res[r.id] = 'yes'; }); });
+    var lines = ['New game night: ' + common.title].concat(nightDetails(docs[0], podById()));
+    if (repeat > 1) lines.push('Repeats weekly for ' + repeat + ' weeks.');
+    lines.push('Answer in one tap: ' + PAGE);
+    var text = lines.join('\n');
+    resetNightForm(); $('nightForm').hidden = true;
+    toast(repeat > 1 ? repeat + ' nights posted' : 'Night posted');
+    return announce(text);
+  }).catch(writeError);
+}
+function submitPoll() {
+  if (needNick()) return;
+  var seen = {}, options = [];
+  document.querySelectorAll('#pollRows .optrow').forEach(function (r) {
+    var ins = r.querySelectorAll('input'), date = ins[0].value, time = ins[1].value || '';
+    if (!date || seen[date + time]) return;
+    seen[date + time] = true;
+    options.push({ date: date, time: time });
+  });
+  if (options.length < 2) { toast('Add at least two different dates.'); return; }
+  options.sort(function (a, b) { return (a.date + a.time).localeCompare(b.date + b.time); });
+  options.forEach(function (o, i) { o.id = 'o' + i; });
+  var doc = Object.assign(formCommon(), { options: options, by: S.uid, at: Date.now() });
+  S.db.collection('polls').add(doc).then(function () {
+    var pm = podById();
+    var lines = ['Which night works? ' + doc.title];
+    options.forEach(function (o) { lines.push('- ' + fmtWhen(o.date, o.time, true)); });
+    var meta = [doc.format, 'need ' + doc.min + ' players'];
+    if (doc.place) meta.push(doc.place);
+    lines.push(meta.join(', '));
+    var pods = podNames(doc, pm);
+    if (pods.length) lines.push('Calling: ' + pods.join(', '));
+    if (doc.note) lines.push(doc.note);
+    lines.push('Vote here: ' + PAGE);
+    var text = lines.join('\n');
+    resetNightForm(); $('nightForm').hidden = true;
+    toast('Poll posted');
+    return announce(text, 'Poll posted');
+  }).catch(writeError);
+}
+function submitEdit() {
+  var old = S.nights.filter(function (x) { return x.id === S.editing; })[0];
+  if (!old) { toast('That night is gone.'); resetNightForm(); $('nightForm').hidden = true; return; }
+  var date = $('nDate').value;
+  if (!date) { toast('Pick a date first.'); return; }
+  var patch = Object.assign(formCommon(), { date: date, time: $('nTime').value || '' });
+  var moved = patch.date !== old.date || patch.time !== (old.time || '') || patch.place !== (old.place || '') || patch.host !== (old.host || '');
+  var merged = Object.assign({}, old, patch);
+  S.db.doc('nights/' + old.id).update(patch).then(function () {
+    resetNightForm(); $('nightForm').hidden = true;
+    toast('Night updated');
+    if (moved) {
+      var text = ['Updated: ' + merged.title].concat(nightDetails(merged, podById()), ['Details: ' + PAGE]).join('\n');
+      return announce(text, 'Update posted');
+    }
+  }).catch(writeError);
+}
+function copyText(text) {
+  var done = function () { toast('Copied'); };
+  var fallback = function () { var t = $('announceText'); t.focus(); t.select(); toast('Select the message and copy it'); };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback);
+  else fallback();
+}
+function wireForms() {
+  FORMATS.forEach(function (f) { $('nFormat').append(h('option', { value: f, text: f })); });
+  resetNightForm();
+  $('callBtn').addEventListener('click', function () {
+    var f = $('nightForm');
+    if (!f.hidden && !S.editing) { f.hidden = true; return; }
+    resetNightForm(); f.hidden = false; $('nTitle').focus();
+  });
+  $('nightCancel').addEventListener('click', function () { resetNightForm(); $('nightForm').hidden = true; });
+  $('addPodBtn').addEventListener('click', function () { var f = $('podForm'); f.hidden = !f.hidden; if (!f.hidden) $('podName').focus(); });
+  $('podCancel').addEventListener('click', function () { $('podForm').hidden = true; });
+  $('nickCancel').addEventListener('click', function () { $('nickForm').hidden = true; });
+  $('closeAnnounce').addEventListener('click', function () { $('announce').hidden = true; });
+  $('copyAnnounce').addEventListener('click', function () { copyText($('announceText').value); });
+  $('addOpt').addEventListener('click', function () {
+    var rows = $('pollRows').children;
+    if (rows.length >= 6) { toast('Six dates is the most a poll can hold.'); return; }
+    var last = rows.length ? rows[rows.length - 1].querySelector('input').value : todayStr();
+    addPollRow(addDaysYmd(last || todayStr(), 1));
+  });
+  document.querySelectorAll('#modeSeg button').forEach(function (b) { b.addEventListener('click', function () { setMode(b.dataset.m); }); });
+  document.querySelectorAll('#filter button').forEach(function (b) {
+    b.addEventListener('click', function () { S.filter = b.dataset.f; renderFilter(); renderPolls(); renderNights(); });
+  });
+  document.querySelectorAll('#openSeg button').forEach(function (b) {
+    b.addEventListener('click', function () { if (S.isAdmin) setOpen(b.dataset.open === 'true'); });
+  });
+  $('discordForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (S.isAdmin) saveDiscord($('discWebhook').value, $('discPing').value);
+  });
+  $('discRemove').addEventListener('click', function () {
+    if (!S.isAdmin || !armConfirm('dr', renderMembers)) return;
+    $('discWebhook').value = '';
+    saveDiscord('', '');
+  });
+  $('addMemberForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (!S.isAdmin) return;
+    addMember($('newMember').value).then(function (ok) { if (ok) $('newMember').value = ''; });
+  });
+
+  $('nickForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var v = $('nick').value.trim().slice(0, 24); if (!v || !canWrite()) return;
+    saveMe(function (c) { c.nick = v; }).then(function () { toast('Name saved'); });
+    $('nickForm').hidden = true;
+  });
+  $('podForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (!canWrite()) return;
+    var name = $('podName').value.trim(); if (!name) return;
+    var mana = ($('podForm').querySelector('input[name=mana]:checked') || {}).value || 'U';
+    S.db.collection('pods').add({ name: name, mana: mana, by: S.uid, at: Date.now() }).then(function () {
+      $('podName').value = ''; $('podForm').hidden = true; toast('Pod added');
+    }).catch(writeError);
+  });
+  $('nightForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (!canWrite()) return;
+    if (S.editing) submitEdit();
+    else if (S.mode === 'poll') submitPoll();
+    else submitNights();
+  });
+}
+
+/* ---------- boot ---------- */
+function allConfirmed() { return S.confirmed.pods && S.confirmed.nights && S.confirmed.polls && S.confirmed.people; }
+function sub(name, key, assign) {
+  S.db.collection(name).onSnapshot(function (snap) {
+    assign(snap.docs.map(function (d) { var o = d.data(); o.id = d.id; return o; }));
+    if (key) {
+      S.loaded[key] = true;
+      if (!snap.metadata.fromCache) S.confirmed[key] = true;
+      if (allConfirmed()) S.slow = false;
+    }
+    renderAll();
+  }, function () { if (key) S.error = true; renderAll(); });
+}
+async function boot() {
+  wireForms();
+  renderAll();
+  var r = await BACKEND.connect();
+  S.state = r.state; S.db = r.db || null; S.uid = r.uid || null; S.isAdmin = !!(r.isAdmin || r.canEdit);
+  S.canWriteFlag = r.canWrite == null ? null : r.canWrite; S.profileName = r.profileName || '';
+  S.email = r.email || ''; S.request = r.request || null;
+  renderAll();
+  if (!S.db || S.state !== 'ok') return;
+  setTimeout(function () { if (!allConfirmed()) { S.slow = true; renderAll(); } }, 10000);
+  sub('pods', 'pods', function (a) { S.pods = a; });
+  sub('nights', 'nights', function (a) { S.nights = a; });
+  sub('polls', 'polls', function (a) { S.polls = a; });
+  sub(PEOPLE, 'people', function (a) { var m = {}; a.forEach(function (p) { m[p.id] = p; }); S.people = m; });
+  if (ACCOUNTS) {
+    subDoc('config/settings', function (d) { S.settings = { open: !!d.open, blocked: d.blocked || [] }; });
+    subDoc('config/discord', applyDiscord);
+    if (S.isAdmin) {
+      subDoc('config/members', function (d) { S.members = { emails: d.emails || [], admins: d.admins || [] }; });
+      sub('requests', null, function (a) { S.requests = a; });
+    }
+  }
+}
+function subDoc(path, assign) {
+  // Settings that a viewer may not be allowed to read just stay at their defaults.
+  S.db.doc(path).onSnapshot(function (snap) { assign(snap.exists ? (snap.data() || {}) : {}); renderAll(); }, function () {});
+}
+boot();
+})();

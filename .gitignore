@@ -1,0 +1,8 @@
+# Keep these out of GitHub.
+# The rules file names the owner's email and only needs to live in the Firebase console.
+firestore.rules
+# Service account keys can read your database. They belong in GitHub secrets only.
+*firebase-adminsdk*.json
+*service-account*.json
+*-key.json
+.env

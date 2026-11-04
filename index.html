@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.gstatic.com https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://*.googleusercontent.com; connect-src 'self' https://*.googleapis.com https://www.gstatic.com https://discord.com https://discordapp.com; frame-src https://*.firebaseapp.com https://accounts.google.com https://apis.google.com; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#17624E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Pod Planner</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600..800&family=Hanken+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<style>
+:root{
+  --bg:#ECEFED; --surface:#F9FAF9; --surface-2:#E2E8E4; --ink:#101916; --muted:#56655F; --line:#CCD4D0;
+  --accent:#17624E; --accent-ink:#F4FBF8;
+  --good:#17703F; --good-soft:#D2EBDC;
+  --warn:#8F5A00; --warn-soft:#F3E4C4; --on-warn:#FFFFFF;
+  --bad:#A63636;
+  --m-w:#D9C67A; --m-u:#3B7DBF; --m-b:#6A5B72; --m-r:#D1523D; --m-g:#3C9A59;
+  --font-display:'Bricolage Grotesque','Trebuchet MS',system-ui,sans-serif;
+  --font-body:'Hanken Grotesk',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-mono:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#0E1412; --surface:#151D1A; --surface-2:#1E2824; --ink:#E5EDE9; --muted:#93A59D; --line:#2A3631;
+    --accent:#53C7A1; --accent-ink:#04140E;
+    --good:#5FD08E; --good-soft:#1A3626;
+    --warn:#E3B04F; --warn-soft:#3A2F14; --on-warn:#1B1303;
+    --bad:#EF7B7B;
+    --m-w:#E5D58E; --m-u:#5C9BDB; --m-b:#8E7E98; --m-r:#E36B56; --m-g:#58B374;
+    color-scheme:dark;
+  }
+}
+/* Layout: one narrow column. Header, pod strip, then polls and night cards with a row of seat circles showing how full the table is. */
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{
+  background:var(--bg); color:var(--ink); font-family:var(--font-body); font-size:15px; line-height:1.5;
+  margin:0;
+  padding-block:calc(28px + env(safe-area-inset-top,0px)) calc(56px + env(safe-area-inset-bottom,0px));
+  padding-left:max(16px,env(safe-area-inset-left,0px));
+  padding-right:max(16px,env(safe-area-inset-right,0px));
+}
+#app{max-width:720px;margin:0 auto;display:flex;flex-direction:column;gap:24px}
+h1,h2,h3,p{margin:0}
+h1{font-family:var(--font-display);font-weight:800;font-size:34px;line-height:1.05;letter-spacing:-0.02em;text-wrap:balance}
+h2{font-family:var(--font-display);font-weight:700;font-size:20px;letter-spacing:-0.01em;text-wrap:balance}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+button:disabled{cursor:not-allowed;opacity:.5}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}
+.brand{display:flex;flex-direction:column;gap:8px;min-width:0}
+.mana-row{display:flex;gap:5px}
+.dot{display:inline-block;width:11px;height:11px;border-radius:50%;flex:none;box-shadow:0 0 0 1px color-mix(in srgb,var(--ink) 25%,transparent)}
+.m-W{background:var(--m-w)} .m-U{background:var(--m-u)} .m-B{background:var(--m-b)} .m-R{background:var(--m-r)} .m-G{background:var(--m-g)}
+.sub{color:var(--muted);max-width:44ch}
+.me-btn{display:inline-flex;align-items:center;gap:8px;padding:7px 12px;border:1px solid var(--line);background:var(--surface);border-radius:999px;font-size:13px;font-weight:600}
+.me-btn small{font-weight:500;color:var(--muted)}
+
+.notice{padding:10px 14px;border:1px solid var(--warn);background:var(--warn-soft);color:var(--ink);border-radius:10px;font-size:14px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:14px}
+.panel .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.field{display:flex;flex-direction:column;gap:5px;min-width:0;border:0;padding:0;margin:0}
+.field label,.field legend{font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);padding:0}
+input[type=text],input[type=email],input[type=password],input[type=date],input[type=time],input[type=number],select,textarea{
+  width:100%;min-width:0;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:9px 10px;font-size:16px
+}
+textarea{resize:vertical;min-height:64px}
+.primary{background:var(--accent);color:var(--accent-ink);border:0;border-radius:10px;padding:10px 16px;font-weight:700}
+.ghost{background:transparent;border:1px solid var(--line);border-radius:10px;padding:9px 14px;font-weight:600}
+.link{background:none;border:0;padding:4px 2px;color:var(--muted);font-size:13px;text-decoration:underline;text-underline-offset:3px;font-weight:500}
+a.link{display:inline-block}
+.link.danger{color:var(--bad)}
+.hint{color:var(--muted);font-size:14px}
+
+.strip{display:flex;flex-direction:column;gap:12px}
+.head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chipwrap{display:inline-flex;align-items:center;gap:2px}
+.chip{display:inline-flex;align-items:center;gap:8px;padding:7px 12px;border:1px solid var(--line);background:var(--surface);border-radius:999px;font-size:14px;font-weight:600}
+.chip.on{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.chip.armed{border-color:var(--bad);color:var(--bad)}
+.chip .count{font-family:var(--font-mono);font-size:12px;color:var(--muted);font-weight:500}
+.chip .chk{color:var(--accent);font-weight:800}
+.pick{display:inline-flex;align-items:center;gap:8px;padding:7px 12px;border:1px solid var(--line);background:var(--bg);border-radius:999px;font-size:14px;cursor:pointer}
+.pick:has(input:checked){border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.pick input{accent-color:var(--accent)}
+.mana{display:flex;gap:10px}
+.mana label{cursor:pointer;position:relative}
+.mana input{position:absolute;opacity:0;inset:0;margin:0;cursor:pointer}
+.mana .swatch{display:block;width:30px;height:30px;border-radius:50%;box-shadow:0 0 0 1px color-mix(in srgb,var(--ink) 25%,transparent)}
+.mana input:checked + .swatch{outline:2px solid var(--ink);outline-offset:3px}
+.mana input:focus-visible + .swatch{outline:2px solid var(--accent);outline-offset:3px}
+
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface);align-self:flex-start}
+.seg button{background:none;border:0;padding:7px 14px;font-size:13px;font-weight:600;color:var(--muted)}
+.seg button[aria-pressed=true]{background:var(--ink);color:var(--bg)}
+.panel .seg{background:var(--bg)}
+
+.board{display:flex;flex-direction:column;gap:24px}
+.mebox{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.gate{max-width:440px;width:100%}
+.gate form{display:flex;flex-direction:column;gap:14px}
+.google{display:flex;align-items:center;justify-content:center;padding:11px 16px;border:1px solid var(--line);border-radius:10px;background:var(--bg);font-weight:700;width:100%}
+.or{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:13px}
+.or::before,.or::after{content:"";flex:1;border-top:1px solid var(--line)}
+.err{color:var(--bad);font-size:14px}
+.ok{color:var(--good);font-size:14px}
+.sublabel{font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.mrow{display:flex;justify-content:space-between;align-items:center;gap:6px 12px;flex-wrap:wrap;padding:10px 0;border-top:1px solid var(--line)}
+.minfo{display:flex;flex-direction:column;min-width:0}
+.minfo b{font-weight:600;overflow-wrap:anywhere}
+.minfo span{color:var(--muted);font-size:13px;overflow-wrap:anywhere}
+.mact{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.small{padding:7px 12px;font-size:13px}
+.grow{flex:1 1 220px}
+.headctl{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+#discordForm .row{align-self:end}
+.minfo .tagline{color:var(--bad)}
+
+.optrow{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,120px) auto;gap:8px;align-items:center}
+#pollRows{display:flex;flex-direction:column;gap:8px}
+
+.list{display:flex;flex-direction:column;gap:14px}
+.kicker{font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);font-weight:600}
+.empty{padding:28px 18px;text-align:center;border:1px dashed var(--line);border-radius:14px;color:var(--muted)}
+.empty h3{font-family:var(--font-display);font-size:18px;color:var(--ink);margin-bottom:4px}
+
+.poll{display:flex;flex-direction:column;gap:10px;padding:16px;background:var(--surface);border:1px dashed var(--accent);border-radius:14px}
+.poll h3{font-family:var(--font-display);font-size:19px;font-weight:700;letter-spacing:-0.01em;overflow-wrap:anywhere}
+.opts{display:flex;flex-direction:column}
+.opt{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 12px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.optinfo{display:flex;flex-direction:column;gap:2px;min-width:0}
+.when{font-weight:600;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.optcount{font-family:var(--font-mono);font-size:12px;color:var(--muted)}
+.who{font-size:13px;color:var(--muted);overflow-wrap:anywhere}
+.votes{display:flex;gap:6px}
+.vb{padding:7px 11px;border-radius:8px;border:1px solid var(--line);background:var(--bg);font-size:13px;font-weight:700}
+.vb[aria-pressed=true].yes{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.vb[aria-pressed=true].maybe{background:var(--warn);color:var(--on-warn);border-color:var(--warn)}
+.vb[aria-pressed=true].no{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.opt.best .when{color:var(--good)}
+
+.night{display:grid;grid-template-columns:64px minmax(0,1fr);gap:16px;padding:16px;background:var(--surface);border:1px solid var(--line);border-radius:14px}
+.date{display:flex;flex-direction:column;align-items:center;gap:1px;padding:8px 0;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);height:max-content;font-family:var(--font-mono)}
+.date .mo,.date .wd{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.date .dd{font-family:var(--font-display);font-size:28px;font-weight:700;line-height:1.05;color:var(--ink)}
+.body{display:flex;flex-direction:column;gap:12px;min-width:0}
+.titlerow{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap}
+.titlerow h3{font-family:var(--font-display);font-size:19px;font-weight:700;letter-spacing:-0.01em;min-width:0;overflow-wrap:anywhere}
+.pill{font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px;white-space:nowrap}
+.pill.on{background:var(--good-soft);color:var(--good)}
+.pill.maybe{background:var(--warn-soft);color:var(--warn)}
+.pill.short{background:var(--surface-2);color:var(--muted)}
+.meta{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:14px;color:var(--muted)}
+.meta b{color:var(--ink);font-weight:600;font-family:var(--font-mono);font-size:13px}
+.tags{display:flex;flex-wrap:wrap;gap:6px}
+.tag{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:2px 9px;border-radius:999px;border:1px solid var(--line)}
+.tag .dot{width:9px;height:9px}
+.note{font-size:14px;overflow-wrap:anywhere}
+.seatrow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.seats{display:flex;flex-wrap:wrap;gap:6px}
+.seat{width:20px;height:20px;border-radius:50%;border:2px solid var(--line)}
+.seat.yes{background:var(--accent);border-color:var(--accent)}
+.seat.maybe{border:2px dashed var(--accent)}
+.seatcount{font-family:var(--font-mono);font-size:12px;color:var(--muted)}
+.roster{display:grid;gap:4px;font-size:13px;margin:0}
+.roster div{display:grid;grid-template-columns:70px minmax(0,1fr);gap:8px}
+.roster dt{color:var(--muted);font-weight:600}
+.roster dd{margin:0;overflow-wrap:anywhere}
+.roster .wait dd{color:var(--muted)}
+.rsvp{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.rs{padding:10px 8px;border-radius:10px;border:1px solid var(--line);background:var(--bg);font-weight:700;font-size:14px}
+.rs[aria-pressed=true].yes{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.rs[aria-pressed=true].maybe{background:var(--warn);color:var(--on-warn);border-color:var(--warn)}
+.rs[aria-pressed=true].no{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.bring{display:flex;flex-direction:column;gap:4px}
+.bring label{font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.foot{display:flex;justify-content:space-between;align-items:center;gap:4px 14px;flex-wrap:wrap}
+.cal,.owner{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+
+details.past{border:1px solid var(--line);border-radius:14px;background:var(--surface);padding:12px 16px}
+details.past summary{cursor:pointer;font-weight:600;font-size:14px}
+.pastrow{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px solid var(--line);font-size:14px;margin-top:8px;flex-wrap:wrap}
+.pastrow span:last-child{color:var(--muted);font-family:var(--font-mono);font-size:12px}
+
+#toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:9px 16px;border-radius:999px;font-size:14px;font-weight:600;z-index:20;max-width:calc(100% - 32px)}
+@media (prefers-reduced-motion:no-preference){
+  .rs,.vb,.chip,.primary{transition:background-color .12s,border-color .12s}
+}
+@media (max-width:420px){
+  h1{font-size:30px}
+  .night{grid-template-columns:54px minmax(0,1fr);gap:12px;padding:14px}
+  .opt{grid-template-columns:minmax(0,1fr)}
+  .optrow{grid-template-columns:minmax(0,1fr) minmax(0,104px)}
+  .optrow .link{grid-column:1/-1;justify-self:start}
+}
+
+#me{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.stack{display:flex;flex-direction:column;gap:12px}
+.memberform{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin:12px 0}
+.memberform .field{flex:1;min-width:200px}
+</style>
+</head>
+<body>
+<div id="app">
+  <header class="top">
+    <div class="brand">
+      <div class="mana-row" aria-hidden="true"><i class="dot m-W"></i><i class="dot m-U"></i><i class="dot m-B"></i><i class="dot m-R"></i><i class="dot m-G"></i></div>
+      <h1>Pod Planner</h1>
+      <p class="sub">Call a night once. Every pod sees it and answers in one tap.</p>
+    </div>
+    <div id="me" class="mebox"></div>
+  </header>
+
+  <div id="notice" class="notice" role="status" hidden></div>
+
+  <section id="gate" class="panel gate" hidden aria-live="polite"></section>
+
+  <div id="board" class="board">
+  <form id="nickForm" class="panel" hidden>
+    <div class="field">
+      <label for="nick">Your name at the table</label>
+      <input id="nick" type="text" maxlength="24" autocomplete="nickname" placeholder="Rob" required>
+    </div>
+    <div class="row">
+      <button class="primary" type="submit">Save name</button>
+      <button class="ghost" type="button" id="nickCancel">Not now</button>
+    </div>
+  </form>
+
+  <section class="strip" aria-labelledby="podsH">
+    <div class="head">
+      <h2 id="podsH">Pods</h2>
+      <button class="ghost" type="button" id="addPodBtn">New pod</button>
+    </div>
+    <p class="hint">Tap the pods you play in. Nights called for a pod show who in it has not answered yet.</p>
+    <form id="podForm" class="panel" hidden>
+      <div class="field">
+        <label for="podName">Pod name</label>
+        <input id="podName" type="text" maxlength="40" placeholder="Tuesday Commander" required>
+      </div>
+      <fieldset class="field">
+        <legend>Mana color</legend>
+        <div class="mana">
+          <label><input type="radio" name="mana" value="W" aria-label="White"><span class="swatch m-W"></span></label>
+          <label><input type="radio" name="mana" value="U" aria-label="Blue" checked><span class="swatch m-U"></span></label>
+          <label><input type="radio" name="mana" value="B" aria-label="Black"><span class="swatch m-B"></span></label>
+          <label><input type="radio" name="mana" value="R" aria-label="Red"><span class="swatch m-R"></span></label>
+          <label><input type="radio" name="mana" value="G" aria-label="Green"><span class="swatch m-G"></span></label>
+        </div>
+      </fieldset>
+      <div class="row">
+        <button class="primary" type="submit">Add pod</button>
+        <button class="ghost" type="button" id="podCancel">Cancel</button>
+      </div>
+    </form>
+    <div id="pods" class="chips"></div>
+  </section>
+
+  <section class="strip" aria-labelledby="nightsH">
+    <div class="head">
+      <h2 id="nightsH">Game nights</h2>
+      <div class="headctl">
+        <div class="seg" id="filter" role="group" aria-label="Which nights to show">
+          <button type="button" data-f="all" aria-pressed="true">All</button>
+          <button type="button" data-f="mine" aria-pressed="false">My pods</button>
+        </div>
+        <button class="primary" type="button" id="callBtn">Call a night</button>
+      </div>
+    </div>
+
+    <form id="nightForm" class="panel" hidden>
+      <h2 id="formH">Call a night</h2>
+      <div class="seg" id="modeSeg" role="group" aria-label="How to pick the date">
+        <button type="button" data-m="fixed" aria-pressed="true">Pick a date</button>
+        <button type="button" data-m="poll" aria-pressed="false">Let people vote on dates</button>
+      </div>
+      <div class="field">
+        <label for="nTitle">Night name</label>
+        <input id="nTitle" type="text" maxlength="60" placeholder="Tuesday Commander">
+      </div>
+
+      <div id="fixedFields" class="grid">
+        <div class="field"><label for="nDate">Date</label><input id="nDate" type="date"></div>
+        <div class="field"><label for="nTime">Start</label><input id="nTime" type="time"></div>
+        <div class="field" id="repeatField">
+          <label for="nRepeat">Repeat</label>
+          <select id="nRepeat">
+            <option value="1">Just this once</option>
+            <option value="4">Weekly for 4 weeks</option>
+            <option value="8">Weekly for 8 weeks</option>
+            <option value="12">Weekly for 12 weeks</option>
+          </select>
+        </div>
+      </div>
+
+      <div id="pollFields" class="field" hidden>
+        <label>Dates to vote on</label>
+        <div id="pollRows"></div>
+        <div class="row"><button class="ghost" type="button" id="addOpt">Add another date</button></div>
+        <p class="hint">Everyone marks which dates they can make. You lock in the winner and it becomes a night.</p>
+      </div>
+
+      <div class="grid">
+        <div class="field"><label for="nFormat">Format</label><select id="nFormat"></select></div>
+        <div class="field"><label for="nMin">Players needed</label><input id="nMin" type="number" min="2" max="12" value="4" inputmode="numeric"></div>
+      </div>
+      <div class="grid">
+        <div class="field"><label for="nPlace">Where</label><input id="nPlace" type="text" maxlength="80" placeholder="Dan's place, or the shop"></div>
+        <div class="field"><label for="nHost">Host</label><input id="nHost" type="text" maxlength="40" placeholder="Dan"></div>
+      </div>
+      <fieldset class="field">
+        <legend>Call these pods</legend>
+        <div id="formPods" class="chips"></div>
+      </fieldset>
+      <div class="field">
+        <label for="nNote">Note</label>
+        <textarea id="nNote" maxlength="300" placeholder="Bring a deck at power level 7. Pizza on me."></textarea>
+      </div>
+      <div class="row">
+        <button class="primary" type="submit" id="nightSubmit">Post night</button>
+        <button class="ghost" type="button" id="nightCancel">Cancel</button>
+      </div>
+    </form>
+
+    <section id="announce" class="panel" hidden aria-labelledby="announceH">
+      <h2 id="announceH">Night posted</h2>
+      <p class="hint" id="announceHint"></p>
+      <textarea id="announceText" rows="7" readonly aria-label="Message to paste into your group chats"></textarea>
+      <div class="row">
+        <button class="primary" type="button" id="copyAnnounce">Copy message</button>
+        <button class="ghost" type="button" id="closeAnnounce">Done</button>
+      </div>
+    </section>
+
+    <div id="polls" class="list"></div>
+    <div id="nights" class="list"></div>
+    <details id="pastWrap" class="past" hidden>
+      <summary id="pastSum">Earlier nights</summary>
+      <div id="past"></div>
+    </details>
+  </section>
+
+  <section id="membersSec" class="strip" aria-labelledby="membersH" hidden>
+    <div class="head"><h2 id="membersH">Organizer tools</h2></div>
+    <div class="panel">
+      <span class="sublabel">Who can join</span>
+      <div class="seg" id="openSeg" role="group" aria-label="Who can join">
+        <button type="button" data-open="false" aria-pressed="true">Invite only</button>
+        <button type="button" data-open="true" aria-pressed="false">Anyone who signs in</button>
+      </div>
+      <p class="hint" id="openHint"></p>
+    </div>
+    <div class="panel" id="invitePanel">
+      <span class="sublabel">Asking to join</span>
+      <div id="requests"></div>
+      <span class="sublabel">On the list</span>
+      <div id="memberList"></div>
+      <form id="addMemberForm" class="row">
+        <div class="field grow"><label for="newMember">Add by email</label><input id="newMember" type="email" autocomplete="off" placeholder="friend@gmail.com"></div>
+        <button class="ghost" type="submit">Add</button>
+      </form>
+    </div>
+    <div class="panel">
+      <span class="sublabel">People on the board</span>
+      <p class="hint">Blocking shuts someone out right away, even while the board is open to anyone.</p>
+      <div id="peopleList"></div>
+    </div>
+    <div class="panel">
+      <span class="sublabel">Discord announcements</span>
+      <p class="hint" id="discordHint"></p>
+      <form id="discordForm" class="grid">
+        <div class="field"><label for="discWebhook">Webhook URL</label><input id="discWebhook" type="password" autocomplete="off" spellcheck="false" placeholder="https://discord.com/api/webhooks/…"></div>
+        <div class="field"><label for="discPing">Ping</label>
+          <select id="discPing"><option value="">No ping</option><option value="@here">@here</option><option value="@everyone">@everyone</option></select>
+        </div>
+        <div class="row"><button class="ghost" type="submit">Save</button><button class="link" type="button" id="discRemove" hidden>Disconnect</button></div>
+      </form>
+    </div>
+  </section>
+  </div>
+</div>
+<div id="toast" role="status" hidden></div>
+
+<script src="config.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
