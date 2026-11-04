@@ -145,10 +145,45 @@ a.link{display:inline-block}
 .a1-W{--a1:var(--m-w)} .a1-U{--a1:var(--m-u)} .a1-B{--a1:var(--m-b)} .a1-R{--a1:var(--m-r)} .a1-G{--a1:var(--m-g)} .a1-C{--a1:var(--m-c)}
 .a2-W{--a2:var(--m-w)} .a2-U{--a2:var(--m-u)} .a2-B{--a2:var(--m-b)} .a2-R{--a2:var(--m-r)} .a2-G{--a2:var(--m-g)} .a2-C{--a2:var(--m-c)}
 .art{position:relative;min-height:108px;padding:12px;display:flex;flex-direction:column;justify-content:space-between;gap:14px;
-  background:
-    repeating-linear-gradient(45deg,color-mix(in srgb,var(--hi) 12%,transparent) 0 2px,transparent 2px 11px),
-    radial-gradient(120% 90% at 12% 8%,color-mix(in srgb,var(--hi) 35%,transparent),transparent 60%),
-    linear-gradient(135deg,var(--a1),var(--a2))}
+  --lit:color-mix(in srgb,var(--hi) 24%,transparent);--shade:color-mix(in srgb,var(--ink) 14%,transparent);
+  background:linear-gradient(135deg,var(--a1),var(--a2))}
+/* Banner patterns: one original pattern per mana color, drawn with CSS only, over the pod-color gradient. */
+.pat-W{background:
+  radial-gradient(60% 120% at 8% -10%,color-mix(in srgb,var(--hi) 55%,transparent),transparent 60%),
+  repeating-conic-gradient(from 200deg at 8% -10%,var(--lit) 0 3deg,transparent 3deg 11deg),
+  linear-gradient(135deg,var(--a1),var(--a2))}
+.pat-U{background:
+  radial-gradient(circle at 50% 100%,transparent 13px,var(--lit) 14px 16px,transparent 17px) 0 0/34px 17px,
+  radial-gradient(circle at 50% 100%,transparent 13px,var(--shade) 14px 15px,transparent 16px) 17px 8px/34px 17px,
+  linear-gradient(160deg,var(--a1),var(--a2))}
+.pat-B{background:
+  linear-gradient(180deg,transparent 52%,color-mix(in srgb,var(--hi) 8%,transparent) 66%,transparent 80%),
+  radial-gradient(2px 2px at 84% 24%,var(--hi),transparent),radial-gradient(1px 1px at 76% 40%,var(--hi),transparent),
+  radial-gradient(1.5px 1.5px at 20% 30%,var(--hi),transparent),radial-gradient(1px 1px at 40% 70%,var(--hi),transparent),
+  radial-gradient(1.5px 1.5px at 60% 20%,var(--hi),transparent),radial-gradient(1px 1px at 70% 80%,var(--hi),transparent),
+  radial-gradient(1px 1px at 10% 80%,var(--hi),transparent),radial-gradient(1.5px 1.5px at 33% 12%,var(--hi),transparent),
+  radial-gradient(1px 1px at 52% 46%,var(--hi),transparent),radial-gradient(1px 1px at 92% 64%,var(--hi),transparent),
+  linear-gradient(180deg,color-mix(in srgb,var(--a2) 70%,#000),var(--a1))}
+.pat-R{background:
+  linear-gradient(135deg,var(--lit) 25%,transparent 25%) -11px 0/22px 22px,
+  linear-gradient(225deg,var(--lit) 25%,transparent 25%) -11px 0/22px 22px,
+  linear-gradient(0deg,var(--a2),var(--a1))}
+.pat-G{background:
+  radial-gradient(circle at 0 100%,transparent 11px,var(--lit) 12px 13px,transparent 14px) 0 0/24px 24px,
+  radial-gradient(circle at 100% 100%,transparent 11px,var(--lit) 12px 13px,transparent 14px) 0 0/24px 24px,
+  linear-gradient(135deg,var(--a1),var(--a2))}
+.pat-gold{background:
+  linear-gradient(45deg,transparent 46%,var(--lit) 47% 53%,transparent 54%) 0 0/26px 26px,
+  linear-gradient(-45deg,transparent 46%,var(--lit) 47% 53%,transparent 54%) 0 0/26px 26px,
+  linear-gradient(135deg,var(--a1),var(--a2))}
+.pat-C{background:
+  radial-gradient(circle,var(--lit) 1.2px,transparent 1.6px) 0 0/14px 14px,
+  linear-gradient(135deg,var(--a1),var(--a2))}
+/* Banner picker in the pod form */
+.banners{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.banners button{display:flex;flex-direction:column;gap:4px;padding:4px;border:1px solid var(--line);border-radius:10px;background:var(--bg);font-size:12px;font-weight:600;min-width:0}
+.banners button[aria-pressed=true]{border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}
+.banners .art{min-height:0;height:38px;padding:0;border-radius:6px}
 .artrow{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap}
 .timechip{font-family:var(--font-mono);font-size:13px;font-weight:600;padding:3px 9px;border-radius:999px;background:var(--surface);color:var(--ink)}
 .art .pill{box-shadow:0 0 0 1px color-mix(in srgb,var(--ink) 15%,transparent)}

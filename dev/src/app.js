@@ -32,7 +32,7 @@ var S = {
   db: null, uid: null, state: 'init', isAdmin: false, canWriteFlag: null, forcedRO: false, profileName: '', email: '',
   pods: [], nights: [], polls: [], people: {}, members: { emails: [], admins: [] }, requests: [],
   settings: { open: false, blocked: [] }, discord: { webhook: '', ping: '' },
-  invites: [], link: null, podEdit: null, podJoin: 'open',
+  invites: [], link: null, podEdit: null, podJoin: 'open', podBanner: '',
   series: [], sel: {}, f: { q: '', pod: 'all', format: '' }, editingSeries: null,
   loaded: { pods: false, nights: false, polls: false, people: false, series: false },
   confirmed: { pods: false, nights: false, polls: false, people: false, series: false },
@@ -412,6 +412,8 @@ function openPodForm(p) {
   var mana = (p && p.mana) || 'U';
   f.querySelectorAll('input[name=mana]').forEach(function (r) { r.checked = r.value === mana; });
   setPodJoin((p && p.join) || 'open');
+  S.podBanner = (p && p.banner) || '';
+  renderBannerPick();
   $('podOpenSeats').checked = !p || p.openSeats !== false;
   $('podDelete').hidden = !p;
   $('podDelete').textContent = 'Remove pod';
@@ -422,7 +424,7 @@ function submitPod() {
   if (!canWrite()) return;
   var name = $('podName').value.trim(); if (!name) return;
   var mana = ($('podForm').querySelector('input[name=mana]:checked') || {}).value || 'U';
-  var data = { name: name, mana: mana, join: S.podJoin, openSeats: $('podOpenSeats').checked };
+  var data = { name: name, mana: mana, join: S.podJoin, openSeats: $('podOpenSeats').checked, banner: S.podBanner || '' };
   var done = function (msg) { $('podForm').hidden = true; S.podEdit = null; toast(msg); helperSync(); };
   if (S.podEdit) {
     S.db.doc('pods/' + S.podEdit).update(data).then(function () { done('Pod saved'); }).catch(writeError);
@@ -863,12 +865,28 @@ function confetti() {
 }
 
 /* ---------- card frames ---------- */
+var BANNERS = [['', 'Auto'], ['W', 'Dawn'], ['U', 'Tide'], ['B', 'Night'], ['R', 'Ember'], ['G', 'Grove'], ['gold', 'Lattice'], ['C', 'Playmat']];
 function frameFor(item, pm) {
-  var cols = [];
-  (item.podIds || []).forEach(function (id) { var p = pm[id]; if (p && p.mana && cols.indexOf(p.mana) < 0) cols.push(p.mana); });
+  var cols = [], chosen = '';
+  (item.podIds || []).forEach(function (id) {
+    var p = pm[id]; if (!p) return;
+    if (p.mana && cols.indexOf(p.mana) < 0) cols.push(p.mana);
+    if (!chosen && p.banner) chosen = p.banner;
+  });
   var f = cols.length === 0 ? 'none' : cols.length === 1 ? cols[0] : 'gold';
   var a1 = cols[0] || 'C', a2 = cols[1] || a1;
-  return { frame: 'f-' + f, art: 'art a1-' + a1 + ' a2-' + a2 };
+  // A pod's chosen banner wins; otherwise the pattern follows the frame color.
+  var pat = chosen || (f === 'none' ? 'C' : f);
+  return { frame: 'f-' + f, art: 'art a1-' + a1 + ' a2-' + a2 + ' pat-' + pat };
+}
+function renderBannerPick() {
+  var box = $('podBannerPick');
+  var mana = ($('podForm').querySelector('input[name=mana]:checked') || {}).value || 'U';
+  box.replaceChildren.apply(box, BANNERS.map(function (b) {
+    var pat = b[0] || mana, on = (S.podBanner || '') === b[0];
+    return h('button', { type: 'button', 'aria-pressed': String(on), onclick: function () { S.podBanner = b[0]; renderBannerPick(); } },
+      h('span', { class: 'art a1-' + mana + ' a2-' + mana + ' pat-' + pat, 'aria-hidden': 'true' }), b[1]);
+  }));
 }
 function typeLine(kind, item, pm) {
   var pods = podNames(item, pm);
@@ -1413,6 +1431,7 @@ function wireForms() {
   $('addPodBtn').addEventListener('click', function () { if (!$('podForm').hidden && !S.podEdit) { $('podForm').hidden = true; return; } openPodForm(null); });
   $('podCancel').addEventListener('click', function () { $('podForm').hidden = true; S.podEdit = null; });
   $('podDelete').addEventListener('click', deletePodFromForm);
+  $('podForm').querySelectorAll('input[name=mana]').forEach(function (r) { r.addEventListener('change', renderBannerPick); });
   document.querySelectorAll('#podJoinSeg button').forEach(function (b) { b.addEventListener('click', function () { setPodJoin(b.dataset.join); }); });
   $('inviteOpen').addEventListener('click', function () { var f = $('inviteForm'); f.hidden = !f.hidden; if (!f.hidden) fillInviteSelects(); });
   $('inviteCancel').addEventListener('click', function () { $('inviteForm').hidden = true; });

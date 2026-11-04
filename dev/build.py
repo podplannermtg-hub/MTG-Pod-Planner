@@ -41,7 +41,7 @@ def head(extra=''):
     return ('<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
             '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n' + extra +
             '<meta name="referrer" content="strict-origin-when-cross-origin">\n'
-            '<meta name="color-scheme" content="light dark">\n<meta name="theme-color" content="#17624E">\n'
+            '<meta name="color-scheme" content="light dark">\n<meta name="theme-color" content="#EFEEEC">\n'
             '<meta name="apple-mobile-web-app-capable" content="yes">\n<title>Pod Planner</title>\n' + fonts + '\n'
             '<style>\n' + standalone_css + '</style>\n</head>\n<body>\n' + body)
 

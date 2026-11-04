@@ -339,6 +339,8 @@ const calls = (page) => page.evaluate(() => window.__calls);
     // edit it
     await page.locator('.chipwrap', { hasText: 'cEDH Sweats' }).locator('button.podedit').click();
     check('edit form is prefilled', (await page.inputValue('#podName')) === 'cEDH Sweats' && (await page.getAttribute('#podJoinSeg button[data-join=invite]', 'aria-pressed')) === 'true' && !(await page.isChecked('#podOpenSeats')));
+    check('banner picker offers Auto plus seven patterns', (await page.locator('#podBannerPick button').count()) === 8 && (await page.getAttribute('#podBannerPick button:first-child', 'aria-pressed')) === 'true');
+    await page.click('#podBannerPick button:has-text("Night")');
     await page.fill('#podName', 'cEDH Sweatshop'); await page.click('#podSubmit');
     await page.waitForSelector('.chip:has-text("cEDH Sweatshop")');
     // invite Dana
@@ -359,6 +361,9 @@ const calls = (page) => page.evaluate(() => window.__calls);
     check('announcement goes through the helper', calls1.some((c) => c[0] === '/announce' && c[1].kind === 'night' && c[1].ids.length === 1) && posts.length === 0);
     check('copy message still offered', (await page.innerText('#announceH')).includes('sent to Discord'));
     await page.click('#closeAnnounce');
+    s = await store(page);
+    check('chosen banner saved', s.pods[podId].banner === 'B');
+    check('banner follows pod color by default', (await page.locator('article.night', { hasText: 'Helper Night' }).locator('.art').getAttribute('class')).includes('pat-G'));
     check('night shows it is an open table', (await page.locator('article.night', { hasText: 'Helper Night' }).locator('.meta').innerText()).includes('Open table'));
     // profile: Discord connected, Open Seats opt-in
     await page.click('.me-btn');
