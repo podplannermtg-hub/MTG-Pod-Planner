@@ -58,7 +58,8 @@ a.link{display:inline-block}
 .strip{display:flex;flex-direction:column;gap:12px}
 .head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
 .chips{display:flex;flex-wrap:wrap;gap:8px}
-.chipwrap{display:inline-flex;align-items:center;gap:2px}
+.chipwrap{display:inline-flex;align-items:center;gap:2px;max-width:100%}
+.chipwrap > .chip{min-width:0;text-align:left}
 .chipwrap > .link{min-width:32px;min-height:32px;font-size:16px;text-decoration:none;border-radius:50%}
 .chipwrap > .link.danger{font-size:13px;text-decoration:underline;border-radius:6px}
 .chip{display:inline-flex;align-items:center;gap:8px;padding:7px 12px;border:1px solid var(--line);background:var(--surface);border-radius:999px;font-size:14px;font-weight:600}
@@ -104,6 +105,14 @@ a.link{display:inline-block}
 .small{padding:7px 12px;font-size:13px}
 .grow{flex:1 1 220px}
 .headctl{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.stackbox{display:flex;flex-direction:column;gap:8px}
+.check{display:flex;gap:10px;align-items:flex-start;font-size:14px;cursor:pointer}
+.check input{margin-top:3px;width:18px;height:18px;flex:none;accent-color:var(--accent)}
+.badge{font-family:var(--font-mono);font-size:11px;font-weight:600;padding:1px 6px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+.invite{flex-direction:row;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px;border-color:var(--accent-text)}
+.invite p{min-width:0;overflow-wrap:anywhere}
+.linked{font-size:14px}
+
 #discordForm .row{align-self:end}
 
 .optrow{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,120px) auto;gap:8px;align-items:center}

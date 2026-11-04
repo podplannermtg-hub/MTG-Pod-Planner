@@ -5,6 +5,7 @@ var CONFIG = BACKEND.config;
 var PEOPLE = BACKEND.peopleCol;
 var PAGE = BACKEND.pageUrl;
 var ACCOUNTS = !!BACKEND.features.accounts;
+var HELPER = BACKEND.helper || null;
 var FORMATS = ['Commander', 'cEDH', 'Draft', 'Sealed', 'Cube', 'Standard', 'Modern', 'Pauper', 'Other'];
 
 function h(tag, props) {
@@ -31,6 +32,7 @@ var S = {
   db: null, uid: null, state: 'init', isAdmin: false, canWriteFlag: null, forcedRO: false, profileName: '', email: '',
   pods: [], nights: [], polls: [], people: {}, members: { emails: [], admins: [] }, requests: [],
   settings: { open: false, blocked: [] }, discord: { webhook: '', ping: '' },
+  invites: [], link: null, podEdit: null, podJoin: 'open',
   loaded: { pods: false, nights: false, polls: false, people: false },
   confirmed: { pods: false, nights: false, polls: false, people: false },
   filter: 'all', slow: false, error: false, confirm: null, nickShown: false,
@@ -191,7 +193,11 @@ function showAnnounce(text, sent, heading) {
   $('announceText').value = text;
   $('announce').hidden = false;
 }
-function announce(text, heading) {
+function announce(text, heading, payload) {
+  if (HELPER && payload) {
+    return HELPER.call('/announce', payload).then(function (r) { showAnnounce(text, !!(r && r.posted), heading); },
+      function () { showAnnounce(text, false, heading); });
+  }
   return sendDiscord(text).then(function (sent) { showAnnounce(text, sent, heading); });
 }
 
@@ -239,6 +245,7 @@ function openNick(focus) {
   if (!i.value) i.value = (me() && me().nick) || S.profileName || '';
   if (S.ciDraft == null) S.ciDraft = validCi(me() && me().ci);
   renderCiPick();
+  renderDiscordProfile();
   if (focus) i.focus();
 }
 function closeNick() {
@@ -268,7 +275,13 @@ function answer(n, k) {
 }
 function maybeGameOn(n, before) {
   var min = n.min || 4;
-  if (!CONFIG.discordWebhook || n.gameOnPosted || before >= min || before + 1 < min) return;
+  if (n.gameOnPosted || before >= min || before + 1 < min) return;
+  if (HELPER) {
+    // give the answer a moment to save; the helper recounts the seats itself
+    setTimeout(function () { HELPER.call('/announce', { kind: 'gameon', id: n.id }).catch(function () {}); }, 1500);
+    return;
+  }
+  if (!CONFIG.discordWebhook) return;
   S.db.doc('nights/' + n.id).update({ gameOnPosted: true }).catch(function () {});
   var text = ['Game on: ' + n.title + ' has ' + min + ' of ' + min + ' seats.'].concat(nightDetails(n, podById()), ['Details: ' + PAGE]).join('\n');
   sendDiscord(text);
@@ -288,14 +301,6 @@ function saveBring(n, text) {
   if (((me() && me().bring && me().bring[n.id]) || '') === v) return;
   saveMe(function (c) { c.bring = c.bring || {}; if (v) c.bring[n.id] = v; else delete c.bring[n.id]; });
 }
-function togglePod(id) {
-  if (!canWrite() || needNick()) return;
-  saveMe(function (c) {
-    c.pods = c.pods || [];
-    var i = c.pods.indexOf(id);
-    if (i >= 0) c.pods.splice(i, 1); else c.pods.push(id);
-  });
-}
 function cancelNight(n) {
   if (!armConfirm('n:' + n.id, renderNights)) return;
   S.db.doc('nights/' + n.id).delete().then(function () { toast('Night cancelled'); }).catch(writeError);
@@ -305,10 +310,6 @@ function cancelSeries(n) {
   var rest = S.nights.filter(function (x) { return x.series === n.series && x.date >= n.date; });
   Promise.all(rest.map(function (x) { return S.db.doc('nights/' + x.id).delete(); }))
     .then(function () { toast(rest.length + ' nights cancelled'); }).catch(writeError);
-}
-function removePod(p) {
-  if (!armConfirm('p:' + p.id, renderPods)) return;
-  S.db.doc('pods/' + p.id).delete().then(function () { toast('Pod removed'); }).catch(writeError);
 }
 function deletePoll(p) {
   if (!armConfirm('d:' + p.id, renderPolls)) return;
@@ -321,12 +322,144 @@ function lockIn(p, o) {
     title: p.title, date: o.date, time: o.time || '', place: p.place || '', host: p.host || '', format: p.format,
     min: p.min || 4, podIds: p.podIds || [], note: p.note || '', fromPoll: p.id, fromOpt: o.id, by: S.uid, at: Date.now()
   };
-  S.db.collection('nights').add(doc).then(function () {
+  S.db.collection('nights').add(doc).then(function (ref) {
     S.db.doc('polls/' + p.id).delete().catch(writeError);
     var text = ['Locked in: ' + p.title].concat(nightDetails(doc, podById()), ['Confirm your answer: ' + PAGE]).join('\n');
     toast('Night locked in');
-    return announce(text, 'Night locked in');
+    return announce(text, 'Night locked in', { kind: 'locked', id: ref.id });
   }).catch(writeError);
+}
+
+/* ---------- pods: settings, invites, Discord ---------- */
+function myPods() { return (me() && me().pods) || []; }
+function myInvite(podId) { return S.invites.filter(function (x) { return x.podId === podId && x.uid === S.uid; })[0]; }
+function canJoinPod(p) { return !p || p.join !== 'invite' || p.by === S.uid || S.isAdmin || !!myInvite(p.id); }
+var syncTimer = null;
+function helperSync() {
+  if (!HELPER || !S.link) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(function () { HELPER.call('/sync', {}).catch(function () {}); }, 1200);
+}
+function togglePod(id) {
+  if (!canWrite() || needNick()) return;
+  var p = podById()[id], inIt = myPods().indexOf(id) >= 0;
+  if (!inIt && !canJoinPod(p)) { toast(p.name + ' is invite only. Ask someone in it to invite you.'); return; }
+  saveMe(function (c) {
+    c.pods = c.pods || [];
+    var i = c.pods.indexOf(id);
+    if (i >= 0) c.pods.splice(i, 1); else { c.pods.push(id); c.joining = id; }
+  }).then(helperSync);
+}
+function invitablePods() {
+  return podsSorted().filter(function (p) { return p.join === 'invite' && (myPods().indexOf(p.id) >= 0 || p.by === S.uid || S.isAdmin); });
+}
+function sendInvite(podId, uid) {
+  if (!podId || !uid) { toast('Pick a pod and a person.'); return; }
+  var who = S.people[uid];
+  S.db.doc('invites/' + podId + '_' + uid).set({ podId: podId, uid: uid, by: S.uid, at: Date.now() })
+    .then(function () { toast('Invite sent to ' + ((who && who.nick) || 'them')); $('inviteForm').hidden = true; }).catch(writeError);
+}
+function fillInviteSelects() {
+  var pods = invitablePods(), podSel = $('invPod'), whoSel = $('invWho');
+  var keepPod = podSel.value, keepWho = whoSel.value;
+  podSel.replaceChildren.apply(podSel, pods.map(function (p) { return h('option', { value: p.id, text: p.name }); }));
+  if (pods.some(function (p) { return p.id === keepPod; })) podSel.value = keepPod;
+  var podId = podSel.value;
+  var invited = S.invites.filter(function (x) { return x.podId === podId; }).map(function (x) { return x.uid; });
+  var people = livePeople().filter(function (p) { return p.nick && p.id !== S.uid && (p.pods || []).indexOf(podId) < 0 && invited.indexOf(p.id) < 0; })
+    .sort(function (a, b) { return a.nick.localeCompare(b.nick); });
+  var opts = people.map(function (p) { return h('option', { value: p.id, text: p.nick }); });
+  if (!opts.length) opts = [h('option', { value: '', text: 'Everyone is already in or invited' })];
+  whoSel.replaceChildren.apply(whoSel, opts);
+  if (people.some(function (p) { return p.id === keepWho; })) whoSel.value = keepWho;
+}
+function renderInvites() {
+  var box = $('invites'); box.replaceChildren();
+  if (!canWrite()) { $('inviteBox').hidden = true; return; }
+  var pm = podById(), mine = myPods();
+  S.invites.filter(function (x) { return x.uid === S.uid && pm[x.podId] && mine.indexOf(x.podId) < 0; }).forEach(function (inv) {
+    var p = pm[inv.podId], from = S.people[inv.by];
+    box.append(h('div', { class: 'panel invite' },
+      h('p', null, h('b', { text: (from && from.nick) || 'Someone' }), ' invited you to ', h('b', { text: p.name })),
+      h('div', { class: 'mact' },
+        h('button', { type: 'button', class: 'primary small', onclick: function () { togglePod(p.id); } }, 'Join pod'),
+        h('button', { type: 'button', class: 'link', onclick: function () { S.db.doc('invites/' + inv.id).delete().catch(writeError); } }, 'No thanks'))));
+  });
+  var pods = invitablePods();
+  $('inviteBox').hidden = !pods.length;
+  var focusIn = $('inviteForm').contains(document.activeElement);
+  if (pods.length && !$('inviteForm').hidden && !focusIn) fillInviteSelects();
+}
+function setPodJoin(v) {
+  S.podJoin = v;
+  document.querySelectorAll('#podJoinSeg button').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.join === v)); });
+  $('podJoinHint').textContent = v === 'invite'
+    ? 'Members invite people in. Everyone can still see its nights and answer them.'
+    : 'Anyone can tap to join.';
+}
+function openPodForm(p) {
+  var f = $('podForm');
+  S.podEdit = p ? p.id : null;
+  $('podFormH').textContent = p ? 'Edit pod' : 'New pod';
+  $('podSubmit').textContent = p ? 'Save pod' : 'Add pod';
+  $('podName').value = p ? p.name : '';
+  var mana = (p && p.mana) || 'U';
+  f.querySelectorAll('input[name=mana]').forEach(function (r) { r.checked = r.value === mana; });
+  setPodJoin((p && p.join) || 'open');
+  $('podOpenSeats').checked = !p || p.openSeats !== false;
+  $('podDelete').hidden = !p;
+  $('podDelete').textContent = 'Remove pod';
+  f.hidden = false;
+  $('podName').focus();
+}
+function submitPod() {
+  if (!canWrite()) return;
+  var name = $('podName').value.trim(); if (!name) return;
+  var mana = ($('podForm').querySelector('input[name=mana]:checked') || {}).value || 'U';
+  var data = { name: name, mana: mana, join: S.podJoin, openSeats: $('podOpenSeats').checked };
+  var done = function (msg) { $('podForm').hidden = true; S.podEdit = null; toast(msg); helperSync(); };
+  if (S.podEdit) {
+    S.db.doc('pods/' + S.podEdit).update(data).then(function () { done('Pod saved'); }).catch(writeError);
+  } else {
+    S.db.collection('pods').add(Object.assign(data, { by: S.uid, at: Date.now() })).then(function (ref) {
+      // the creator is the pod's first member
+      if (me() && me().nick) saveMe(function (c) { c.pods = c.pods || []; if (c.pods.indexOf(ref.id) < 0) { c.pods.push(ref.id); c.joining = ref.id; } });
+      done('Pod added');
+    }).catch(writeError);
+  }
+}
+function deletePodFromForm() {
+  var id = S.podEdit; if (!id) return;
+  if (S.confirm !== 'p:' + id) {
+    S.confirm = 'p:' + id; $('podDelete').textContent = 'Tap again to remove';
+    setTimeout(function () { if (S.confirm === 'p:' + id) { S.confirm = null; $('podDelete').textContent = 'Remove pod'; } }, 4000);
+    return;
+  }
+  S.confirm = null;
+  S.db.doc('pods/' + id).delete().then(function () { $('podForm').hidden = true; S.podEdit = null; toast('Pod removed'); }).catch(writeError);
+}
+function renderDiscordProfile() {
+  var box = $('discordProfile');
+  box.hidden = !HELPER || !canWrite();
+  if (box.hidden) return;
+  var row = $('discordLinkRow'); row.replaceChildren();
+  if (S.link) {
+    var armed = S.confirm === 'unlink';
+    row.append(h('span', { class: 'linked' }, 'Connected as ', h('b', { text: S.link.name || 'your Discord account' })),
+      h('button', { type: 'button', class: 'link' + (armed ? ' danger' : ''), onclick: unlinkDiscord }, armed ? 'Tap again to disconnect' : 'Disconnect'));
+  } else {
+    row.append(h('button', { type: 'button', class: 'ghost', id: 'connectDiscord', onclick: connectDiscord }, 'Connect Discord'),
+      h('span', { class: 'hint', text: 'Joins our server and gives you your pod roles automatically.' }));
+  }
+  if (document.activeElement !== $('openSeatsMe')) $('openSeatsMe').checked = !!(me() && me().openSeats);
+}
+function connectDiscord() {
+  HELPER.call('/link/start', {}).then(function (r) { BACKEND.go(r.url); }, function () { toast("Couldn't reach the Discord helper. Try again in a minute."); });
+}
+function unlinkDiscord() {
+  if (!armConfirm('unlink', renderDiscordProfile)) return;
+  HELPER.call('/link/remove', {}).then(function () { S.link = null; renderAll(); toast('Discord disconnected'); },
+    function () { toast("Couldn't reach the Discord helper. Try again in a minute."); });
 }
 
 /* ---------- accounts ---------- */
@@ -481,7 +614,10 @@ function removeMember(e) {
   var m = cloneMembers();
   m.emails = m.emails.filter(function (x) { return x !== e; });
   m.admins = m.admins.filter(function (x) { return x !== e; });
-  saveMembers(m).then(function () { toast('Removed ' + e); }).catch(writeError);
+  saveMembers(m).then(function () {
+    toast('Removed ' + e);
+    if (HELPER) HELPER.call('/sync', { all: true }).catch(function () {});
+  }).catch(writeError);
 }
 function toggleAdmin(e) {
   var m = cloneMembers();
@@ -509,7 +645,10 @@ function toggleBlock(p) {
   var b = (S.settings.blocked || []).slice(), i = b.indexOf(p.id);
   if (i < 0) { if (!armConfirm('b:' + p.id, renderMembers)) return; b.push(p.id); } else b.splice(i, 1);
   saveSettings({ open: !!S.settings.open, blocked: b })
-    .then(function () { toast((p.nick || 'That person') + (i < 0 ? ' is blocked' : ' is unblocked')); }).catch(writeError);
+    .then(function () {
+      toast((p.nick || 'That person') + (i < 0 ? ' is blocked' : ' is unblocked'));
+      if (HELPER) HELPER.call('/sync', { uid: p.id }).catch(function () {});
+    }).catch(writeError);
 }
 function saveDiscord(webhook, ping) {
   webhook = String(webhook || '').trim();
@@ -522,6 +661,7 @@ function renderMembers() {
   var sec = $('membersSec');
   sec.hidden = !(ACCOUNTS && S.isAdmin && S.state === 'ok');
   if (sec.hidden) return;
+  $('discordPanel').hidden = !!HELPER;
   var open = !!S.settings.open, openArmed = S.confirm === 'open';
   document.querySelectorAll('#openSeg button').forEach(function (b) {
     var v = b.dataset.open === 'true';
@@ -620,11 +760,10 @@ function renderPods() {
       type: 'button', class: 'chip' + (on ? ' on' : ''), 'aria-pressed': String(on), disabled: !canWrite(),
       title: on ? 'You play in this pod. Tap to leave.' : 'Tap to join this pod.',
       onclick: function () { togglePod(p.id); }
-    }, h('i', { class: 'dot m-' + p.mana }), p.name, h('span', { class: 'count', text: String(memberCount(p.id)) }), on ? h('span', { class: 'chk', 'aria-hidden': 'true', text: '✓' }) : null);
+    }, h('i', { class: 'dot m-' + p.mana }), p.name, p.join === 'invite' ? h('span', { class: 'badge', text: 'invite' }) : null, h('span', { class: 'count', text: String(memberCount(p.id)) }), on ? h('span', { class: 'chk', 'aria-hidden': 'true', text: '✓' }) : null);
     var wrap = h('span', { class: 'chipwrap' }, chip);
     if (canWrite() && mineId(p.by)) {
-      var armed = S.confirm === 'p:' + p.id;
-      wrap.append(h('button', { type: 'button', class: 'link' + (armed ? ' danger' : ''), 'aria-label': 'Remove pod ' + p.name, onclick: function () { removePod(p); } }, armed ? 'Remove?' : '×'));
+      wrap.append(h('button', { type: 'button', class: 'link podedit', 'aria-label': 'Edit pod ' + p.name, onclick: function () { openPodForm(p); } }, 'Edit'));
     }
     box.append(wrap);
   });
@@ -841,6 +980,8 @@ function nightCard(n, pm) {
   var meta = [];
   if (n.place) meta.push(n.place);
   if (n.host) meta.push('Host: ' + n.host);
+  var nightPods = (n.podIds || []).map(function (id) { return pm[id]; }).filter(Boolean);
+  if (nightPods.length) meta.push(nightPods.some(function (p) { return p.openSeats === false; }) ? 'Pod only' : 'Open table');
   if (n.series) meta.push('Weekly');
   return h('article', { class: 'night card ' + fr.frame },
     h('div', { class: 'card-in' },
@@ -900,7 +1041,7 @@ function updateControls() {
 }
 function renderAll() {
   applyIdentity(S.ciDraft != null && !$('nickForm').hidden ? S.ciDraft : (me() && me().ci));
-  renderGate(); renderNotice(); renderMe(); renderPods(); renderFormPods(); renderFilter(); renderPolls(); renderNights(); renderMembers(); updateControls(); maybeOpenNick();
+  renderGate(); renderNotice(); renderMe(); renderPods(); renderInvites(); renderDiscordProfile(); renderFormPods(); renderFilter(); renderPolls(); renderNights(); renderMembers(); updateControls(); maybeOpenNick();
 }
 
 /* ---------- night and poll form ---------- */
@@ -975,7 +1116,7 @@ function submitNights() {
     var text = lines.join('\n');
     resetNightForm(); $('nightForm').hidden = true;
     toast(repeat > 1 ? repeat + ' nights posted' : 'Night posted');
-    return announce(text);
+    return announce(text, null, { kind: 'night', ids: refs.map(function (r) { return r.id; }) });
   }).catch(writeError);
 }
 function submitPoll() {
@@ -991,7 +1132,7 @@ function submitPoll() {
   options.sort(function (a, b) { return (a.date + a.time).localeCompare(b.date + b.time); });
   options.forEach(function (o, i) { o.id = 'o' + i; });
   var doc = Object.assign(formCommon(), { options: options, by: S.uid, at: Date.now() });
-  S.db.collection('polls').add(doc).then(function () {
+  S.db.collection('polls').add(doc).then(function (ref) {
     var pm = podById();
     var lines = ['Which night works? ' + doc.title];
     options.forEach(function (o) { lines.push('- ' + fmtWhen(o.date, o.time, true)); });
@@ -1005,7 +1146,7 @@ function submitPoll() {
     var text = lines.join('\n');
     resetNightForm(); $('nightForm').hidden = true;
     toast('Poll posted');
-    return announce(text, 'Poll posted');
+    return announce(text, 'Poll posted', { kind: 'poll', id: ref.id });
   }).catch(writeError);
 }
 function submitEdit() {
@@ -1021,7 +1162,7 @@ function submitEdit() {
     toast('Night updated');
     if (moved) {
       var text = ['Updated: ' + merged.title].concat(nightDetails(merged, podById()), ['Details: ' + PAGE]).join('\n');
-      return announce(text, 'Update posted');
+      return announce(text, 'Update posted', { kind: 'updated', id: old.id });
     }
   }).catch(writeError);
 }
@@ -1040,8 +1181,19 @@ function wireForms() {
     resetNightForm(); f.hidden = false; $('nTitle').focus();
   });
   $('nightCancel').addEventListener('click', function () { resetNightForm(); $('nightForm').hidden = true; });
-  $('addPodBtn').addEventListener('click', function () { var f = $('podForm'); f.hidden = !f.hidden; if (!f.hidden) $('podName').focus(); });
-  $('podCancel').addEventListener('click', function () { $('podForm').hidden = true; });
+  $('addPodBtn').addEventListener('click', function () { if (!$('podForm').hidden && !S.podEdit) { $('podForm').hidden = true; return; } openPodForm(null); });
+  $('podCancel').addEventListener('click', function () { $('podForm').hidden = true; S.podEdit = null; });
+  $('podDelete').addEventListener('click', deletePodFromForm);
+  document.querySelectorAll('#podJoinSeg button').forEach(function (b) { b.addEventListener('click', function () { setPodJoin(b.dataset.join); }); });
+  $('inviteOpen').addEventListener('click', function () { var f = $('inviteForm'); f.hidden = !f.hidden; if (!f.hidden) fillInviteSelects(); });
+  $('inviteCancel').addEventListener('click', function () { $('inviteForm').hidden = true; });
+  $('invPod').addEventListener('change', fillInviteSelects);
+  $('inviteForm').addEventListener('submit', function (e) { e.preventDefault(); if (canWrite()) sendInvite($('invPod').value, $('invWho').value); });
+  $('openSeatsMe').addEventListener('change', function (e) {
+    if (!canWrite()) return;
+    var on = e.target.checked;
+    saveMe(function (c) { if (on) c.openSeats = true; else delete c.openSeats; }).then(helperSync);
+  });
   $('nickCancel').addEventListener('click', closeNick);
   document.querySelectorAll('#ciPick button').forEach(function (b) {
     b.addEventListener('click', function () {
@@ -1088,15 +1240,7 @@ function wireForms() {
     saveMe(function (c) { c.nick = v; if (ci) c.ci = ci; else delete c.ci; }).then(function () { toast('Saved'); });
     closeNick();
   });
-  $('podForm').addEventListener('submit', function (e) {
-    e.preventDefault();
-    if (!canWrite()) return;
-    var name = $('podName').value.trim(); if (!name) return;
-    var mana = ($('podForm').querySelector('input[name=mana]:checked') || {}).value || 'U';
-    S.db.collection('pods').add({ name: name, mana: mana, by: S.uid, at: Date.now() }).then(function () {
-      $('podName').value = ''; $('podForm').hidden = true; toast('Pod added');
-    }).catch(writeError);
-  });
+  $('podForm').addEventListener('submit', function (e) { e.preventDefault(); submitPod(); });
   $('nightForm').addEventListener('submit', function (e) {
     e.preventDefault();
     if (!canWrite()) return;
@@ -1120,6 +1264,13 @@ function sub(name, key, assign) {
   }, function () { if (key) S.error = true; renderAll(); });
 }
 async function boot() {
+  var hash = location.hash;
+  if (/^#discord=/.test(hash)) {
+    try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
+    setTimeout(function () {
+      toast(hash === '#discord=linked' ? 'Discord connected. Your pod roles are on their way.' : "Discord didn't connect. Try again from your profile.");
+    }, 400);
+  }
   wireForms();
   renderAll();
   var r = await BACKEND.connect();
@@ -1133,6 +1284,8 @@ async function boot() {
   sub('nights', 'nights', function (a) { S.nights = a; });
   sub('polls', 'polls', function (a) { S.polls = a; });
   sub(PEOPLE, 'people', function (a) { var m = {}; a.forEach(function (p) { m[p.id] = p; }); S.people = m; });
+  sub('invites', null, function (a) { S.invites = a; });
+  if (HELPER && S.uid) subDoc('links/' + S.uid, function (d) { S.link = d.discordId ? d : null; });
   if (ACCOUNTS) {
     subDoc('config/settings', function (d) { S.settings = { open: !!d.open, blocked: d.blocked || [] }; });
     subDoc('config/discord', applyDiscord);

@@ -29,8 +29,13 @@
       </div>
       <p class="hint"><span class="ciname" id="ciName">Colorless</span>. The app takes on your colors, and they show next to your name.</p>
     </fieldset>
+    <div id="discordProfile" class="stackbox" hidden>
+      <span class="sublabel">Discord</span>
+      <div class="row" id="discordLinkRow"></div>
+      <label class="check"><input type="checkbox" id="openSeatsMe"><span>Ping me as <b>@Open Seats</b> when a game anywhere has open seats</span></label>
+    </div>
     <div class="row">
-      <button class="primary" type="submit">Save name</button>
+      <button class="primary" type="submit">Save</button>
       <button class="ghost" type="button" id="nickCancel">Not now</button>
     </div>
   </form>
@@ -42,6 +47,7 @@
     </div>
     <p class="hint">Tap the pods you play in. Nights called for a pod show who in it has not answered yet.</p>
     <form id="podForm" class="panel" hidden>
+      <h2 id="podFormH">New pod</h2>
       <div class="field">
         <label for="podName">Pod name</label>
         <input id="podName" type="text" maxlength="40" placeholder="Tuesday Commander" required>
@@ -56,12 +62,34 @@
           <label><input type="radio" name="mana" value="G" aria-label="Green"><span class="swatch m-G"></span></label>
         </div>
       </fieldset>
+      <fieldset class="field">
+        <legend>Who can join</legend>
+        <div class="seg" id="podJoinSeg" role="group" aria-label="Who can join this pod">
+          <button type="button" data-join="open" aria-pressed="true">Anyone</button>
+          <button type="button" data-join="invite" aria-pressed="false">Invite only</button>
+        </div>
+        <p class="hint" id="podJoinHint"></p>
+      </fieldset>
+      <label class="check"><input type="checkbox" id="podOpenSeats" checked><span>Call <b>@Open Seats</b> when one of this pod's nights is short</span></label>
       <div class="row">
-        <button class="primary" type="submit">Add pod</button>
+        <button class="primary" type="submit" id="podSubmit">Add pod</button>
         <button class="ghost" type="button" id="podCancel">Cancel</button>
+        <button class="link danger" type="button" id="podDelete" hidden>Remove pod</button>
       </div>
     </form>
     <div id="pods" class="chips"></div>
+    <div id="invites" class="list"></div>
+    <div id="inviteBox" hidden>
+      <button class="link" type="button" id="inviteOpen">Invite someone to a pod</button>
+      <form id="inviteForm" class="panel" hidden>
+        <div class="grid">
+          <div class="field"><label for="invPod">Pod</label><select id="invPod"></select></div>
+          <div class="field"><label for="invWho">Person</label><select id="invWho"></select></div>
+        </div>
+        <div class="row"><button class="primary" type="submit">Send invite</button><button class="ghost" type="button" id="inviteCancel">Cancel</button></div>
+        <p class="hint">They'll see the invite at the top of their board.</p>
+      </form>
+    </div>
   </section>
 
   <section class="strip" aria-labelledby="nightsH">
@@ -173,7 +201,7 @@
       <p class="hint">Blocking shuts someone out right away, even while the board is open to anyone.</p>
       <div id="peopleList"></div>
     </div>
-    <div class="panel">
+    <div class="panel" id="discordPanel">
       <span class="sublabel">Discord announcements</span>
       <p class="hint" id="discordHint"></p>
       <form id="discordForm" class="grid">

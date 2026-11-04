@@ -6,6 +6,8 @@ var BACKEND = {
   pageUrl: 'https://claude.ai/artifact/CF5F7JcB5upjgYaZv7coR3',
   afterAuth: function () {},
   auth: null,
+  helper: null,
+  go: function (url) { location.href = url; },
   async connect() {
     var claude = window.claude, db = null, user = null;
     try { db = claude ? await claude.use('db') : null; } catch (e) { db = null; }

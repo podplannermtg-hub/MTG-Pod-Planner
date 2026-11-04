@@ -256,6 +256,87 @@ const calls = (page) => page.evaluate(() => window.__calls);
     await page.context().close();
   }
 
+  /* ===== pods: invite-only, Open Seats setting, invites, Discord helper ===== */
+  {
+    const seed = baseSeed();
+    seed.people.me1 = { nick: 'Rob', pods: [], res: {} };
+    seed.people.other1.pods = ['p1'];
+    seed.links = { me1: { discordId: 'd1', name: 'robplays' } };
+    const { page, errors, posts } = await open(browser, { state: 'ok', uid: 'me1', email: 'me@example.com', isAdmin: false }, seed, { __helper: true });
+    await page.waitForSelector('article.night');
+    const helperCalls = () => page.evaluate(() => window.__helperCalls || []);
+    // create an invite-only pod that keeps its nights in-house
+    await page.click('#addPodBtn');
+    await page.fill('#podName', 'cEDH Sweats');
+    await page.click('#podJoinSeg button[data-join=invite]');
+    check('invite-only explains itself', (await page.innerText('#podJoinHint')).includes('Members invite people in'));
+    await page.uncheck('#podOpenSeats');
+    await page.click('#podSubmit');
+    await page.waitForSelector('.chip:has-text("cEDH Sweats")');
+    let s = await store(page);
+    const podId = Object.keys(s.pods).find((k) => s.pods[k].name === 'cEDH Sweats');
+    check('pod saved with its settings', s.pods[podId].join === 'invite' && s.pods[podId].openSeats === false && s.pods[podId].by === 'me1');
+    check('creator joins their new pod', (s.people.me1.pods || []).includes(podId) && s.people.me1.joining === podId);
+    check('invite-only pods show a badge', (await page.innerText('.chip:has-text("cEDH Sweats")')).includes('invite'));
+    // edit it
+    await page.locator('.chipwrap', { hasText: 'cEDH Sweats' }).locator('button.podedit').click();
+    check('edit form is prefilled', (await page.inputValue('#podName')) === 'cEDH Sweats' && (await page.getAttribute('#podJoinSeg button[data-join=invite]', 'aria-pressed')) === 'true' && !(await page.isChecked('#podOpenSeats')));
+    await page.fill('#podName', 'cEDH Sweatshop'); await page.click('#podSubmit');
+    await page.waitForSelector('.chip:has-text("cEDH Sweatshop")');
+    // invite Dana
+    await page.click('#inviteOpen');
+    check('invite form offers the invite-only pod', (await page.locator('#invPod option').allInnerTexts()).join() === 'cEDH Sweatshop');
+    check('invite form offers people not in it', (await page.locator('#invWho option').allInnerTexts()).sort().join() === 'Dana,Sam');
+    await page.selectOption('#invWho', { label: 'Dana' });
+    await page.click('#inviteForm button[type=submit]');
+    await page.waitForTimeout(100);
+    s = await store(page);
+    check('invite stored with a predictable id', s.invites && s.invites[podId + '_other1'] && s.invites[podId + '_other1'].by === 'me1');
+    // night for the open pod announces through the helper, not the webhook
+    await page.click('#callBtn'); await page.fill('#nTitle', 'Helper Night');
+    await page.check('#formPods label:has-text("Tuesday Commander") input');
+    await page.click('#nightSubmit');
+    await page.waitForSelector('#announce:not([hidden])');
+    const calls1 = await helperCalls();
+    check('announcement goes through the helper', calls1.some((c) => c[0] === '/announce' && c[1].kind === 'night' && c[1].ids.length === 1) && posts.length === 0);
+    check('copy message still offered', (await page.innerText('#announceH')).includes('sent to Discord'));
+    await page.click('#closeAnnounce');
+    check('night shows it is an open table', (await page.locator('article.night', { hasText: 'Helper Night' }).locator('.meta').innerText()).includes('Open table'));
+    // profile: Discord connected, Open Seats opt-in
+    await page.click('.me-btn');
+    check('profile shows the Discord link', (await page.innerText('#discordLinkRow')).includes('Connected as robplays'));
+    await page.check('#openSeatsMe');
+    await page.waitForTimeout(1500);
+    s = await store(page);
+    check('Open Seats opt-in saved', s.people.me1.openSeats === true);
+    check('role sync requested after changes', (await helperCalls()).some((c) => c[0] === '/sync'));
+    check('pods: no errors', errors.length === 0, errors);
+    await page.context().close();
+  }
+  {
+    // Dana: sees the invite, can't join the invite-only pod without it, accepts it
+    const seed = baseSeed();
+    seed.pods.p9 = { name: 'cEDH Sweatshop', mana: 'B', by: 'me1', join: 'invite', openSeats: false };
+    seed.pods.p8 = { name: 'Secret Club', mana: 'U', by: 'me1', join: 'invite' };
+    seed.invites = { p9_other1: { podId: 'p9', uid: 'other1', by: 'old1', at: 1 } };
+    const { page, errors } = await open(browser, { state: 'ok', uid: 'other1', email: 'dana@example.com', isAdmin: false }, seed, { __helper: true });
+    await page.waitForSelector('article.night');
+    check('invitation banner shown', (await page.innerText('#invites')).includes('Sam invited you to cEDH Sweatshop'));
+    await page.click('.chip:has-text("Secret Club")');
+    check('cannot join an invite-only pod without an invite', (await page.innerText('#toast')).includes('invite only') && !((await store(page)).people.other1.pods || []).includes('p8'));
+    await page.click('#invites button:has-text("Join pod")');
+    await page.waitForTimeout(100);
+    const s = await store(page);
+    check('accepting joins the pod', s.people.other1.pods.includes('p9') && s.people.other1.joining === 'p9');
+    check('banner disappears after joining', (await page.locator('#invites .invite').count()) === 0);
+    await page.click('.me-btn');
+    await page.click('#connectDiscord');
+    await page.waitForFunction(() => !!window.__went);
+    check('Connect Discord sends you to Discord', (await page.evaluate(() => window.__went)).startsWith('https://discord.com/oauth2/authorize'));
+    check('invitee: no errors', errors.length === 0, errors);
+    await page.context().close();
+  }
+
   /* ===== open-mode guest: can use the board, cannot read the webhook ===== */
   {
     const seed = withDiscord(baseSeed());

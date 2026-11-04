@@ -155,6 +155,12 @@ async function main() {
   const remindDays = (env.REMIND_DAYS || '1').split(',').map((s) => parseInt(s.trim(), 10)).filter((n) => Number.isInteger(n) && n >= 0);
   const pageUrl = env.PAGE_URL && !env.PAGE_URL.startsWith('PASTE') ? env.PAGE_URL : '';
   const token = await serviceToken(sa);
+  // If the Discord helper is running, it sends reminders (with pod pings). Don't double up.
+  const helperState = await readDoc(sa.project_id, token, 'config/discordHelper');
+  if (helperState && helperState.remindersAt && Date.now() - helperState.remindersAt < 36 * 3600e3) {
+    console.log('The Discord helper is sending reminders, so this job has nothing to do.');
+    return;
+  }
   const [nights, pods, people] = await Promise.all(['nights', 'pods', 'people'].map((c) => readCollection(sa.project_id, token, c)));
   const messages = buildMessages({ nights, pods, people }, { today: ymdInTz(new Date(), tz), remindDays, pageUrl });
   if (!messages.length) { console.log('No nights to remind about today.'); return; }

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.gstatic.com https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://*.googleusercontent.com; connect-src 'self' https://*.googleapis.com https://www.gstatic.com https://discord.com https://discordapp.com; frame-src https://*.firebaseapp.com https://accounts.google.com https://apis.google.com; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.gstatic.com https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://*.googleusercontent.com; connect-src 'self' https://*.googleapis.com https://www.gstatic.com https://discord.com https://discordapp.com https://*.workers.dev; frame-src https://*.firebaseapp.com https://accounts.google.com https://apis.google.com; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#17624E">
@@ -114,7 +114,8 @@ a.link{display:inline-block}
 .strip{display:flex;flex-direction:column;gap:12px}
 .head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
 .chips{display:flex;flex-wrap:wrap;gap:8px}
-.chipwrap{display:inline-flex;align-items:center;gap:2px}
+.chipwrap{display:inline-flex;align-items:center;gap:2px;max-width:100%}
+.chipwrap > .chip{min-width:0;text-align:left}
 .chipwrap > .link{min-width:32px;min-height:32px;font-size:16px;text-decoration:none;border-radius:50%}
 .chipwrap > .link.danger{font-size:13px;text-decoration:underline;border-radius:6px}
 .chip{display:inline-flex;align-items:center;gap:8px;padding:7px 12px;border:1px solid var(--line);background:var(--surface);border-radius:999px;font-size:14px;font-weight:600}
@@ -160,6 +161,14 @@ a.link{display:inline-block}
 .small{padding:7px 12px;font-size:13px}
 .grow{flex:1 1 220px}
 .headctl{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.stackbox{display:flex;flex-direction:column;gap:8px}
+.check{display:flex;gap:10px;align-items:flex-start;font-size:14px;cursor:pointer}
+.check input{margin-top:3px;width:18px;height:18px;flex:none;accent-color:var(--accent)}
+.badge{font-family:var(--font-mono);font-size:11px;font-weight:600;padding:1px 6px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+.invite{flex-direction:row;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px;border-color:var(--accent-text)}
+.invite p{min-width:0;overflow-wrap:anywhere}
+.linked{font-size:14px}
+
 #discordForm .row{align-self:end}
 
 .optrow{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,120px) auto;gap:8px;align-items:center}
@@ -304,8 +313,13 @@ details.past summary{cursor:pointer;font-weight:600;font-size:14px}
       </div>
       <p class="hint"><span class="ciname" id="ciName">Colorless</span>. The app takes on your colors, and they show next to your name.</p>
     </fieldset>
+    <div id="discordProfile" class="stackbox" hidden>
+      <span class="sublabel">Discord</span>
+      <div class="row" id="discordLinkRow"></div>
+      <label class="check"><input type="checkbox" id="openSeatsMe"><span>Ping me as <b>@Open Seats</b> when a game anywhere has open seats</span></label>
+    </div>
     <div class="row">
-      <button class="primary" type="submit">Save name</button>
+      <button class="primary" type="submit">Save</button>
       <button class="ghost" type="button" id="nickCancel">Not now</button>
     </div>
   </form>
@@ -317,6 +331,7 @@ details.past summary{cursor:pointer;font-weight:600;font-size:14px}
     </div>
     <p class="hint">Tap the pods you play in. Nights called for a pod show who in it has not answered yet.</p>
     <form id="podForm" class="panel" hidden>
+      <h2 id="podFormH">New pod</h2>
       <div class="field">
         <label for="podName">Pod name</label>
         <input id="podName" type="text" maxlength="40" placeholder="Tuesday Commander" required>
@@ -331,12 +346,34 @@ details.past summary{cursor:pointer;font-weight:600;font-size:14px}
           <label><input type="radio" name="mana" value="G" aria-label="Green"><span class="swatch m-G"></span></label>
         </div>
       </fieldset>
+      <fieldset class="field">
+        <legend>Who can join</legend>
+        <div class="seg" id="podJoinSeg" role="group" aria-label="Who can join this pod">
+          <button type="button" data-join="open" aria-pressed="true">Anyone</button>
+          <button type="button" data-join="invite" aria-pressed="false">Invite only</button>
+        </div>
+        <p class="hint" id="podJoinHint"></p>
+      </fieldset>
+      <label class="check"><input type="checkbox" id="podOpenSeats" checked><span>Call <b>@Open Seats</b> when one of this pod's nights is short</span></label>
       <div class="row">
-        <button class="primary" type="submit">Add pod</button>
+        <button class="primary" type="submit" id="podSubmit">Add pod</button>
         <button class="ghost" type="button" id="podCancel">Cancel</button>
+        <button class="link danger" type="button" id="podDelete" hidden>Remove pod</button>
       </div>
     </form>
     <div id="pods" class="chips"></div>
+    <div id="invites" class="list"></div>
+    <div id="inviteBox" hidden>
+      <button class="link" type="button" id="inviteOpen">Invite someone to a pod</button>
+      <form id="inviteForm" class="panel" hidden>
+        <div class="grid">
+          <div class="field"><label for="invPod">Pod</label><select id="invPod"></select></div>
+          <div class="field"><label for="invWho">Person</label><select id="invWho"></select></div>
+        </div>
+        <div class="row"><button class="primary" type="submit">Send invite</button><button class="ghost" type="button" id="inviteCancel">Cancel</button></div>
+        <p class="hint">They'll see the invite at the top of their board.</p>
+      </form>
+    </div>
   </section>
 
   <section class="strip" aria-labelledby="nightsH">
@@ -448,7 +485,7 @@ details.past summary{cursor:pointer;font-weight:600;font-size:14px}
       <p class="hint">Blocking shuts someone out right away, even while the board is open to anyone.</p>
       <div id="peopleList"></div>
     </div>
-    <div class="panel">
+    <div class="panel" id="discordPanel">
       <span class="sublabel">Discord announcements</span>
       <p class="hint" id="discordHint"></p>
       <form id="discordForm" class="grid">
@@ -464,7 +501,7 @@ details.past summary{cursor:pointer;font-weight:600;font-size:14px}
 </div>
 <div id="toast" role="status" hidden></div>
 
-<script src="config.js?v=356af3d335"></script>
-<script type="module" src="app.js?v=356af3d335"></script>
+<script src="config.js?v=407a4a8e48"></script>
+<script type="module" src="app.js?v=407a4a8e48"></script>
 </body>
 </html>

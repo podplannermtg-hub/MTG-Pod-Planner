@@ -14,12 +14,30 @@ const CONFIG = {
 };
 
 let fbAuth = null, fs = null;
+const HELPER_URL = String(((window.POD_CONFIG || {}).helperUrl) || '').replace(/\/+$/, '');
+
+// The Discord helper (optional). Every call carries the signed-in person's Firebase token,
+// which the helper checks before doing anything.
+const HELPER = HELPER_URL ? {
+  async call(path, body) {
+    const token = await fbAuth.currentUser.getIdToken();
+    const r = await fetch(HELPER_URL + path, {
+      method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {})
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw Object.assign(new Error(j.error || ('helper ' + r.status)), { status: r.status });
+    return j;
+  }
+} : null;
 
 const BACKEND = {
   config: CONFIG,
   peopleCol: 'people',
   features: { accounts: true, ics: true },
   pageUrl: location.href.split('#')[0].split('?')[0],
+  helper: HELPER,
+  go(url) { location.href = url; },
   afterAuth() { location.reload(); },
   auth: {
     google() { return signInWithPopup(fbAuth, new GoogleAuthProvider()); },

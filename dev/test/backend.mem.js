@@ -54,6 +54,13 @@ var BACKEND = (function () {
     features: { accounts: true, ics: true },
     pageUrl: 'https://example.test/pods/',
     afterAuth: function () { window.__afterAuth++; },
+    helper: window.__helper ? {
+      call: function (path, body) {
+        (window.__helperCalls = window.__helperCalls || []).push([path, body]);
+        return Promise.resolve(path === '/link/start' ? { url: 'https://discord.com/oauth2/authorize?test' } : path === '/announce' ? { posted: true } : { ok: true });
+      }
+    } : null,
+    go: function (url) { window.__went = url; },
     auth: {
       google: stub('google'), signIn: stub('signIn'), signUp: stub('signUp'),
       resendVerification: stub('resend'), checkVerified: stub('checkVerified', function () { return !!window.__verified; }),
