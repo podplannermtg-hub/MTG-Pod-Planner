@@ -5,7 +5,7 @@ import {
   getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, sendEmailVerification, sendPasswordResetEmail, signOut
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
-import { getFirestore, collection, doc, getDoc, onSnapshot, addDoc, setDoc, updateDoc, deleteDoc } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+import { getFirestore, collection, doc, getDoc, onSnapshot, addDoc, setDoc, updateDoc, deleteDoc, query, where, writeBatch } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
 const CONFIG = {
   firebase: ((window.POD_CONFIG || {}).firebase) || {},
@@ -85,15 +85,26 @@ const BACKEND = {
     let isAdmin = false;
     try { await getDoc(doc(fs, 'config', 'members')); isAdmin = true; } catch (e) {}
 
+    const listen = (q, next, err) => onSnapshot(q, (snap) => {
+      next({ docs: snap.docs.map((d) => ({ id: d.id, data: () => d.data() })), metadata: snap.metadata });
+    }, err);
     const db = {
       collection(name) {
         return {
-          onSnapshot(next, err) {
-            return onSnapshot(collection(fs, name), (snap) => {
-              next({ docs: snap.docs.map((d) => ({ id: d.id, data: () => d.data() })), metadata: snap.metadata });
-            }, err);
+          onSnapshot(next, err) { return listen(collection(fs, name), next, err); },
+          where(field, op, value) {
+            return { onSnapshot(next, err) { return listen(query(collection(fs, name), where(field, op, value)), next, err); } };
           },
           add(data) { return addDoc(collection(fs, name), data).then((r) => ({ id: r.id })); }
+        };
+      },
+      batch() {
+        const b = writeBatch(fs), ref = (path) => doc(fs, ...path.split('/'));
+        return {
+          set(path, d) { b.set(ref(path), d); },
+          update(path, d) { b.update(ref(path), d); },
+          delete(path) { b.delete(ref(path)); },
+          commit() { return b.commit(); }
         };
       },
       doc(path) {
@@ -126,6 +137,8 @@ var PEOPLE = BACKEND.peopleCol;
 var PAGE = BACKEND.pageUrl;
 var ACCOUNTS = !!BACKEND.features.accounts;
 var HELPER = BACKEND.helper || null;
+var REGIONS = ['Upper Bucks', 'Central Bucks', 'Lower Bucks', 'MontCo', 'North Jersey', 'South Jersey'];
+function validRegion(r) { return REGIONS.indexOf(r) >= 0 ? r : ''; }
 var FORMATS = ['Commander', 'cEDH', 'Draft', 'Sealed', 'Cube', 'Standard', 'Modern', 'Pauper', 'Other'];
 
 function h(tag, props) {
@@ -149,15 +162,18 @@ function h(tag, props) {
 }
 
 var S = {
+  privByMe: {},
   db: null, uid: null, state: 'init', isAdmin: false, canWriteFlag: null, forcedRO: false, profileName: '', email: '',
   pods: [], nights: [], polls: [], people: {}, members: { emails: [], admins: [] }, requests: [],
   settings: { open: false, blocked: [] }, discord: { webhook: '', ping: '' },
   invites: [], link: null, podEdit: null, podJoin: 'open', podBanner: '',
-  series: [], sel: {}, f: { q: '', pod: 'all', format: '' }, editingSeries: null,
+  series: [], sel: {}, f: { q: '', pod: 'all', format: '', region: '' }, editingSeries: null,
   loaded: { pods: false, nights: false, polls: false, people: false, series: false },
   confirmed: { pods: false, nights: false, polls: false, people: false, series: false },
   slow: false, error: false, confirm: null, nickShown: false, tab: 'games', open: {}, here: null, formPlace: { lat: null, lng: null },
   formPods: new Set(), mode: 'fixed', editing: null,
+  // Public data comes from the top-level collections; each private pod keeps its own games under privpods/<id>/.
+  pub: { pods: [], nights: [], series: [], polls: [] }, priv: { pods: {}, data: {} }, subs: {}, hidden: {}, hiddenSubs: {}, podVis: 'public',
   request: null, authMode: 'signin', authBusy: false, authError: '', authInfo: '', ciDraft: null
 };
 
@@ -189,6 +205,13 @@ function livePeople() {
 }
 function mineId(by) { return !!S.uid && (by === S.uid || S.isAdmin); }
 function podById() { var m = {}; S.pods.forEach(function (p) { m[p.id] = p; }); return m; }
+function isPrivPod(id) { return Object.prototype.hasOwnProperty.call(S.priv.pods, id); }
+// Where an item lives: '' for the public board, 'privpods/<id>/' for a private pod's games.
+function baseOf(item) { return item && item._priv ? 'privpods/' + item._priv + '/' : ''; }
+function formBase() {
+  var priv = Array.from(S.formPods).filter(isPrivPod);
+  return priv.length ? 'privpods/' + priv[0] + '/' : '';
+}
 function podsSorted() { return S.pods.slice().sort(function (a, b) { return (a.name || '').localeCompare(b.name || ''); }); }
 function podNames(item, pm) { return (item.podIds || []).map(function (id) { return pm[id]; }).filter(Boolean).map(function (p) { return p.name; }); }
 function validVote(v) { return v === 'yes' || v === 'maybe' || v === 'no'; }
@@ -287,7 +310,7 @@ function armConfirm(key, again) {
 
 /* ---------- messages (Discord and copy) ---------- */
 function nightDetails(n, pm) {
-  var lines = [fmtWhen(n.date, n.time, true) + (n.place ? ', ' + n.place : '')];
+  var lines = [fmtWhen(n.date, n.time, true) + (n.place ? ', ' + n.place : '') + (validRegion(n.region) ? ' (' + n.region + ')' : '')];
   var meta = [];
   if (n.format) meta.push(n.format);
   if (hasBrackets(n.format) && n.bracket) meta.push('bracket ' + n.bracket + ' or lower');
@@ -315,7 +338,11 @@ function showAnnounce(text, sent, heading) {
   $('announceText').value = text;
   $('announce').hidden = false;
 }
+function podOfBase(base) { return base ? base.split('/')[1] : ''; }
 function announce(text, heading, payload) {
+  // A private pod's games never go to the shared webhook; the helper posts them in the pod's own channel.
+  if (payload && !payload.pod) delete payload.pod;
+  if (payload && payload.pod && !HELPER) { showAnnounce(text, false, heading); return Promise.resolve(); }
   if (HELPER && payload) {
     return HELPER.call('/announce', payload).then(function (r) { showAnnounce(text, !!(r && r.posted), heading); },
       function () { showAnnounce(text, false, heading); });
@@ -538,7 +565,8 @@ function mapsUrl(address) {
   return isApple() ? 'https://maps.apple.com/?daddr=' + encodeURIComponent(address)
     : 'https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(address);
 }
-function fullPlace(n) { return [n.place, n.address].filter(Boolean).join(', '); }
+function addressOf(n) { return n.addrIn ? ((S.hidden[n.id] && S.hidden[n.id].address) || '') : (n.address || ''); }
+function fullPlace(n) { return [n.place, addressOf(n)].filter(Boolean).join(', '); }
 function useHere() {
   if (!navigator.geolocation) { toast("This browser can't share your location."); return; }
   $('hereNote').textContent = 'Finding you…';
@@ -712,12 +740,12 @@ function maybeGameOn(n, before) {
   if (n.gameOnPosted || before >= min || before + 1 < min) return;
   if (HELPER) {
     // give the answer a moment to save; the helper recounts the seats itself
-    setTimeout(function () { HELPER.call('/announce', { kind: 'gameon', id: n.id }).catch(function () {}); }, 1500);
+    setTimeout(function () { HELPER.call('/announce', n._priv ? { kind: 'gameon', id: n.id, pod: n._priv } : { kind: 'gameon', id: n.id }).catch(function () {}); }, 1500);
     return;
   }
-  if (!CONFIG.discordWebhook) return;
+  if (!CONFIG.discordWebhook || n._priv) return;
   if (n.virtual) { try { if (localStorage.getItem('gameon:' + n.id)) return; localStorage.setItem('gameon:' + n.id, '1'); } catch (e) {} }
-  else S.db.doc('nights/' + n.id).update({ gameOnPosted: true }).catch(function () {});
+  else S.db.doc(baseOf(n) + 'nights/' + n.id).update({ gameOnPosted: true }).catch(function () {});
   var text = ['Game on: ' + n.title + ' has ' + min + ' of ' + min + ' seats.'].concat(nightDetails(n, podById()), ['Details: ' + PAGE]).join('\n');
   sendDiscord(text);
 }
@@ -738,31 +766,32 @@ function saveBring(n, text) {
 }
 function cancelNight(n) {
   if (!armConfirm('n:' + n.id, renderNights)) return;
-  S.db.doc('nights/' + n.id).delete().then(function () { toast('Night cancelled'); }).catch(writeError);
+  if (n.addrIn) S.db.doc(baseOf(n) + 'nights/' + n.id + '/hidden/place').delete().catch(function () {});
+  S.db.doc(baseOf(n) + 'nights/' + n.id).delete().then(function () { toast('Night cancelled'); }).catch(writeError);
 }
 function cancelSeries(n) {
   if (!armConfirm('s:' + n.id, renderNights)) return;
   var rest = S.nights.filter(function (x) { return x.series === n.series && x.date >= n.date; });
-  Promise.all(rest.map(function (x) { return S.db.doc('nights/' + x.id).delete(); }))
+  Promise.all(rest.map(function (x) { return S.db.doc(baseOf(x) + 'nights/' + x.id).delete(); }))
     .then(function () { toast(rest.length + ' nights cancelled'); }).catch(writeError);
 }
 function deletePoll(p) {
   if (!armConfirm('d:' + p.id, renderPolls)) return;
-  S.db.doc('polls/' + p.id).delete().then(function () { toast('Poll deleted'); }).catch(writeError);
+  S.db.doc(baseOf(p) + 'polls/' + p.id).delete().then(function () { toast('Poll deleted'); }).catch(writeError);
 }
 function lockIn(p, o) {
   if (!canWrite()) return;
   if (!armConfirm('l:' + p.id + o.id, renderPolls)) return;
   var doc = {
     title: p.title, date: o.date, time: o.time || '', place: p.place || '', host: p.host || '', format: p.format,
-    address: p.address || '', lat: typeof p.lat === 'number' ? p.lat : null, lng: typeof p.lng === 'number' ? p.lng : null, bracket: p.bracket || 0,
+    address: p.address || '', lat: typeof p.lat === 'number' ? p.lat : null, lng: typeof p.lng === 'number' ? p.lng : null, bracket: p.bracket || 0, region: p.region || '',
     min: p.min || 4, podIds: p.podIds || [], note: p.note || '', fromPoll: p.id, fromOpt: o.id, by: S.uid, at: Date.now()
   };
-  S.db.collection('nights').add(doc).then(function (ref) {
-    S.db.doc('polls/' + p.id).delete().catch(writeError);
+  S.db.collection(baseOf(p) + 'nights').add(doc).then(function (ref) {
+    S.db.doc(baseOf(p) + 'polls/' + p.id).delete().catch(writeError);
     var text = ['Locked in: ' + p.title].concat(nightDetails(doc, podById()), ['Confirm your answer: ' + PAGE]).join('\n');
     toast('Night locked in');
-    return announce(text, 'Night locked in', { kind: 'locked', id: ref.id });
+    return announce(text, 'Night locked in', { kind: 'locked', id: ref.id, pod: p._priv || '' });
   }).catch(writeError);
 }
 
@@ -780,6 +809,10 @@ function togglePod(id) {
   if (!canWrite() || needNick()) return;
   var p = podById()[id], inIt = myPods().indexOf(id) >= 0;
   if (!inIt && !canJoinPod(p)) { toast(p.name + ' is invite only. Ask someone in it to invite you.'); return; }
+  if (inIt && p && p.private && !S.isAdmin && p.by !== S.uid) {
+    if (S.confirm !== 'leave:' + id) { armConfirm('leave:' + id, renderPods); toast('Tap again to leave ' + p.name + '. You\'ll need a new invite to get back in.'); return; }
+    S.confirm = null;
+  }
   saveMe(function (c) {
     c.pods = c.pods || [];
     var i = c.pods.indexOf(id);
@@ -826,6 +859,17 @@ function renderInvites() {
   var focusIn = $('inviteForm').contains(document.activeElement);
   if (pods.length && !$('inviteForm').hidden && !focusIn) fillInviteSelects();
 }
+function setPodVis(v) {
+  S.podVis = v;
+  var p = S.podEdit ? podById()[S.podEdit] : null, locked = !!p && !S.isAdmin;
+  document.querySelectorAll('#podVisSeg button').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.vis === v)); b.disabled = locked; });
+  $('podVisHint').textContent = v === 'private'
+    ? 'Only its members (and organizers) can see this pod, who is in it, and its games. People join by invite. Its games post in a private Discord channel.'
+    : 'Everyone on the board can see this pod and its games.';
+  if (locked) $('podVisHint').textContent += ' Only an organizer can change this for an existing pod.';
+  $('podJoinField').hidden = v === 'private';
+  $('podOpenSeatsRow').hidden = v === 'private';
+}
 function setPodJoin(v) {
   S.podJoin = v;
   document.querySelectorAll('#podJoinSeg button').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.join === v)); });
@@ -842,6 +886,7 @@ function openPodForm(p) {
   var mana = (p && p.mana) || 'U';
   f.querySelectorAll('input[name=mana]').forEach(function (r) { r.checked = r.value === mana; });
   setPodJoin((p && p.join) || 'open');
+  setPodVis(p && p.private ? 'private' : 'public');
   S.podBanner = (p && p.banner) || '';
   renderBannerPick();
   $('podOpenSeats').checked = !p || p.openSeats !== false;
@@ -854,12 +899,23 @@ function submitPod() {
   if (!canWrite()) return;
   var name = $('podName').value.trim(); if (!name) return;
   var mana = ($('podForm').querySelector('input[name=mana]:checked') || {}).value || 'U';
-  var data = { name: name, mana: mana, join: S.podJoin, openSeats: $('podOpenSeats').checked, banner: S.podBanner || '' };
+  var priv = S.podVis === 'private';
+  var data = { name: name, mana: mana, join: priv ? 'invite' : S.podJoin, openSeats: priv ? false : $('podOpenSeats').checked, banner: S.podBanner || '' };
   var done = function (msg) { $('podForm').hidden = true; S.podEdit = null; toast(msg); helperSync(); };
   if (S.podEdit) {
-    S.db.doc('pods/' + S.podEdit).update(data).then(function () { done('Pod saved'); }).catch(writeError);
+    var cur = podById()[S.podEdit];
+    if (!cur) return;
+    var path = (cur.private ? 'privpods/' : 'pods/') + cur.id;
+    var change = S.isAdmin && !!cur.private !== priv;
+    S.db.doc(path).update(data).then(function () {
+      if (!change) { done('Pod saved'); return; }
+      return movePod(Object.assign({}, cur, data), priv).then(function () {
+        done(priv ? cur.name + ' is private now' : cur.name + ' is visible to everyone now');
+      });
+    }).catch(writeError);
   } else {
-    S.db.collection('pods').add(Object.assign(data, { by: S.uid, at: Date.now() })).then(function (ref) {
+    S.db.collection(priv ? 'privpods' : 'pods').add(Object.assign(data, { by: S.uid, at: Date.now() })).then(function (ref) {
+      if (priv) { S.priv.pods[ref.id] = Object.assign({}, data, { id: ref.id, by: S.uid, private: true }); S.privByMe[ref.id] = true; mergeData(); }
       // the creator is the pod's first member
       if (me() && me().nick) saveMe(function (c) { c.pods = c.pods || []; if (c.pods.indexOf(ref.id) < 0) { c.pods.push(ref.id); c.joining = ref.id; } });
       done('Pod added');
@@ -874,7 +930,12 @@ function deletePodFromForm() {
     return;
   }
   S.confirm = null;
-  S.db.doc('pods/' + id).delete().then(function () { $('podForm').hidden = true; S.podEdit = null; toast('Pod removed'); }).catch(writeError);
+  var p = podById()[id], ops = [];
+  if (p && p.private) {
+    ['nights', 'series', 'polls'].forEach(function (k) { S[k].forEach(function (x) { if (x._priv === id) ops.push(['delete', 'privpods/' + id + '/' + k + '/' + x.id]); }); });
+    ops.push(['delete', 'privpods/' + id]);
+  } else ops.push(['delete', 'pods/' + id]);
+  writeAll(ops).then(function () { $('podForm').hidden = true; S.podEdit = null; toast('Pod removed'); }).catch(writeError);
 }
 function renderDiscordProfile() {
   var box = $('discordProfile');
@@ -1196,7 +1257,7 @@ function renderPods() {
       type: 'button', class: 'chip' + (on ? ' on' : ''), 'aria-pressed': String(on), disabled: !canWrite(),
       title: on ? 'You play in this pod. Tap to leave.' : 'Tap to join this pod.',
       onclick: function () { togglePod(p.id); }
-    }, h('i', { class: 'dot m-' + p.mana }), p.name, p.join === 'invite' ? h('span', { class: 'badge', text: 'invite' }) : null, h('span', { class: 'count', text: String(memberCount(p.id)) }), on ? h('span', { class: 'chk', 'aria-hidden': 'true', text: '✓' }) : null);
+    }, h('i', { class: 'dot m-' + p.mana }), p.name, p.private ? h('span', { class: 'badge priv', text: 'private' }) : p.join === 'invite' ? h('span', { class: 'badge', text: 'invite' }) : null, h('span', { class: 'count', text: String(memberCount(p.id)) }), on ? h('span', { class: 'chk', 'aria-hidden': 'true', text: '✓' }) : null);
     var wrap = h('span', { class: 'chipwrap' }, chip);
     if (canWrite() && mineId(p.by)) {
       wrap.append(h('button', { type: 'button', class: 'link podedit', 'aria-label': 'Edit pod ' + p.name, onclick: function () { openPodForm(p); } }, 'Edit'));
@@ -1204,16 +1265,30 @@ function renderPods() {
     box.append(wrap);
   });
 }
+// A private pod's game is only for that pod, so picking one clears the others (and the reverse).
+// While editing, a game stays where it is: public games can't be moved into a private pod or back.
 function renderFormPods() {
   var box = $('formPods'); box.replaceChildren();
-  if (!S.pods.length) { box.append(h('p', { class: 'hint', text: 'No pods yet. Leave this empty to call everyone, or add a pod first.' })); return; }
-  podsSorted().forEach(function (p) {
-    var id = 'fp_' + p.id;
-    var cb = h('input', { type: 'checkbox', id: id, checked: S.formPods.has(p.id), onchange: function (e) {
-      if (e.target.checked) S.formPods.add(p.id); else S.formPods.delete(p.id);
-    } });
-    box.append(h('label', { class: 'pick', 'for': id }, cb, h('i', { class: 'dot m-' + p.mana }), p.name));
+  var lock = S.formLock, lockPod = lock ? lock.split('/')[1] : null;
+  var list = podsSorted().filter(function (p) {
+    if (lock === null || lock === undefined) return !p.private || myPods().indexOf(p.id) >= 0 || S.isAdmin;
+    return lockPod ? p.id === lockPod : !p.private;
   });
+  if (!list.length) { box.append(h('p', { class: 'hint', text: 'No pods yet. Leave this empty to call everyone, or add a pod first.' })); return; }
+  list.forEach(function (p) {
+    var id = 'fp_' + p.id;
+    var cb = h('input', { type: 'checkbox', id: id, checked: S.formPods.has(p.id), disabled: !!lockPod, onchange: function (e) {
+      if (e.target.checked) {
+        if (p.private) S.formPods.clear();
+        else Array.from(S.formPods).forEach(function (x) { if (isPrivPod(x)) S.formPods.delete(x); });
+        S.formPods.add(p.id);
+      } else S.formPods.delete(p.id);
+      renderFormPods();
+    } });
+    box.append(h('label', { class: 'pick' + (p.private ? ' privpick' : ''), 'for': id }, cb, h('i', { class: 'dot m-' + p.mana }), p.name, p.private ? h('span', { class: 'badge', text: 'private' }) : null));
+  });
+  var priv = Array.from(S.formPods).filter(isPrivPod)[0];
+  if (priv) box.append(h('p', { class: 'hint fine', text: 'Only ' + (S.priv.pods[priv].name || 'this pod') + ' will see this game. It posts in the pod\'s private Discord channel.' }));
 }
 function keepFocus(fn) {
   var a = document.activeElement, id = a && a.id, v = null, s = null, e = null;
@@ -1352,6 +1427,7 @@ function pollCard(p, pm) {
       votes);
   });
   var meta = [];
+  if (validRegion(p.region)) meta.push(h('span', { class: 'regionchip', text: p.region }));
   if (p.place) meta.push(p.place);
   if (p.address) meta.push(h('a', { class: 'addr', href: mapsUrl(p.address), target: '_blank', rel: 'noopener', title: 'Directions' }, p.address));
   if (p.host) meta.push('Host: ' + p.host);
@@ -1453,9 +1529,11 @@ function nightCard(n, pm, g) {
   }
   var meta = [];
   if (n.place) meta.push(n.place);
-  if (n.address) meta.push(h('a', { class: 'addr', href: mapsUrl(n.address), target: '_blank', rel: 'noopener', title: 'Directions' }, n.address));
+  var hp = n.addrIn ? hiddenPlace(n) : null, placeOf = hp || n;
+  if (placeOf.address) meta.push(h('a', { class: 'addr', href: mapsUrl(placeOf.address), target: '_blank', rel: 'noopener', title: 'Directions' }, placeOf.address));
+  else if (n.addrIn) meta.push(h('span', { class: 'addrlock', text: 'Address shown once you\'re in' }));
   if (n.host) meta.push('Host: ' + n.host);
-  var dist = distanceText(n);
+  var dist = distanceText(placeOf);
   var nightPods = (n.podIds || []).map(function (id) { return pm[id]; }).filter(Boolean);
   if (nightPods.length) meta.push(nightPods.some(function (p) { return p.openSeats === false; }) ? 'Pod only' : 'Open table');
   if (ser) meta.push(repeatLabel(ser)); else if (n.series) meta.push('Weekly');
@@ -1480,6 +1558,7 @@ function nightCard(n, pm, g) {
         h('div', { class: 'artrow' },
           h('span', { class: 'chiprow' },
             n.time ? h('span', { class: 'timechip', text: fmtTime(n.time) }) : null,
+            validRegion(n.region) ? h('span', { class: 'regionchip', text: n.region }) : null,
             dist ? h('span', { class: 'distchip', title: 'Straight-line distance from your area', text: dist }) : null),
           h('span', { class: 'pill ' + st.cls, text: st.text })),
         seats,
@@ -1589,7 +1668,7 @@ function seriesDates(s, from, to, max) {
 }
 function occurrence(s, ymd) {
   return { id: s.id + '_' + ymd.replace(/-/g, ''), date: ymd, time: s.time || '', title: s.title, place: s.place || '', host: s.host || '',
-    address: s.address || '', lat: s.lat, lng: s.lng, bracket: s.bracket || 0, format: s.format, min: s.min || 4, podIds: s.podIds || [], note: s.note || '', by: s.by, at: s.at, series: s.id, virtual: true };
+    address: s.address || '', lat: s.lat, lng: s.lng, bracket: s.bracket || 0, region: s.region || '', format: s.format, min: s.min || 4, podIds: s.podIds || [], note: s.note || '', by: s.by, at: s.at, series: s.id, virtual: true, _priv: s._priv };
 }
 function repeatLabel(s) {
   var day = parseDate(s.date).toLocaleDateString(undefined, { weekday: 'long' });
@@ -1640,18 +1719,18 @@ function groupNights(list) {
 function selectedIn(g) { var id = S.sel[g.key]; return g.items.filter(function (n) { return n.id === id; })[0] || g.items[0]; }
 function skipDate(s, n) {
   if (!armConfirm('k:' + n.id, renderNights)) return;
-  S.db.doc('series/' + s.id).update({ skips: (s.skips || []).concat([n.date]) })
+  S.db.doc(baseOf(s) + 'series/' + s.id).update({ skips: (s.skips || []).concat([n.date]) })
     .then(function () { toast('Skipped ' + fmtWhen(n.date, '')); }).catch(writeError);
 }
 function endSeries(s) {
   if (!armConfirm('e:' + s.id, renderNights)) return;
   var today = todayStr();
-  var done = s.date >= today ? S.db.doc('series/' + s.id).delete() : S.db.doc('series/' + s.id).update({ until: addDaysYmd(today, -1) });
+  var done = s.date >= today ? S.db.doc(baseOf(s) + 'series/' + s.id).delete() : S.db.doc(baseOf(s) + 'series/' + s.id).update({ until: addDaysYmd(today, -1) });
   done.then(function () { toast('Recurring game ended'); }).catch(writeError);
 }
 
 /* ---------- filters ---------- */
-function filtersOn() { return !!(S.f.q || S.f.pod !== 'all' || S.f.format); }
+function filtersOn() { return !!(S.f.q || S.f.pod !== 'all' || S.f.format || S.f.region); }
 function visibleFor(item, pm) {
   var f = S.f, ids = (item.podIds || []).filter(function (id) { return pm[id]; });
   if (f.pod === 'mine') {
@@ -1659,8 +1738,9 @@ function visibleFor(item, pm) {
     if (!(ids.length === 0 || ids.some(function (id) { return mp.indexOf(id) >= 0; }))) return false;
   } else if (f.pod !== 'all' && ids.indexOf(f.pod) < 0) return false;
   if (f.format && item.format !== f.format) return false;
+  if (f.region && item.region !== f.region) return false;
   if (f.q) {
-    var hay = [item.title, item.place, item.address, item.host, item.note, item.format].join(' ').toLowerCase();
+    var hay = [item.title, item.place, item.address, item.region, item.host, item.note, item.format].join(' ').toLowerCase();
     if (hay.indexOf(f.q.toLowerCase()) < 0) return false;
   }
   return true;
@@ -1685,7 +1765,8 @@ function renderFilter() {
   $('fClear').hidden = !filtersOn();
 }
 function clearFilters() {
-  S.f = { q: '', pod: 'all', format: '' };
+  S.f = { q: '', pod: 'all', format: '', region: '' };
+  $('fRegion').value = '';
   $('fSearch').value = '';
   renderFilter(); renderPolls(); renderNights();
 }
@@ -1708,6 +1789,7 @@ function updateRepeatUI() {
   $('nCountField').hidden = $('nEnds').value !== 'count';
   $('nUntilField').hidden = $('nEnds').value !== 'until';
   $('nightSubmit').textContent = S.editing || S.editingSeries ? 'Save changes' : (S.mode === 'poll' ? 'Post poll' : 'Post night');
+  updateAddrInUI();
 }
 function addPollRow(date, time) {
   var row = h('div', { class: 'optrow' },
@@ -1716,13 +1798,14 @@ function addPollRow(date, time) {
     h('button', { type: 'button', class: 'link', onclick: function () { if ($('pollRows').children.length > 2) row.remove(); else toast('A poll needs at least two dates.'); } }, 'Remove'));
   $('pollRows').append(row);
 }
-function updateBracketUI() { $('bracketField').hidden = !hasBrackets($('nFormat').value); }
+function updateBracketUI() { $('bracketField').hidden = !hasBrackets($('nFormat').value); if ($('addrInRow')) updateAddrInUI(); }
 function resetNightForm() {
   $('nightForm').reset();
   S.editing = null; S.editingSeries = null;
   var t = todayStr();
   $('nDate').value = t; $('nTime').value = '19:00'; $('nMin').value = '4';
-  $('nBracket').value = '0';
+  $('nBracket').value = '0'; S.formLock = null;
+  try { $('nRegion').value = validRegion(localStorage.getItem('pp.region')); } catch (e) {}
   $('nRepeat').value = 'none'; $('optNone').disabled = false; $('nEnds').value = 'never'; $('nCount').value = '6'; $('nUntil').value = '';
   $('pollRows').replaceChildren();
   addPollRow(addDaysYmd(t, 2)); addPollRow(addDaysYmd(t, 3)); addPollRow(addDaysYmd(t, 4));
@@ -1738,7 +1821,9 @@ function startEdit(n) {
   $('nTitle').value = n.title || ''; $('nDate').value = n.date; $('nTime').value = n.time || '';
   $('nFormat').value = n.format || 'Commander'; $('nMin').value = n.min || 4;
   $('nPlace').value = n.place || ''; $('nHost').value = n.host || ''; $('nNote').value = n.note || ''; $('nAddress').value = n.address || '';
-  $('nBracket').value = String(n.bracket || 0); updateBracketUI();
+  $('nBracket').value = String(n.bracket || 0); updateBracketUI(); $('nRegion').value = validRegion(n.region);
+  if (n.addrIn) { $('nAddress').value = (S.hidden[n.id] && S.hidden[n.id].address) || ''; $('nAddrIn').checked = true; }
+  S.formLock = baseOf(n);
   S.formPods = new Set(n.podIds || []); renderFormPods();
   $('formH').textContent = 'Edit night';
   $('modeSeg').hidden = true; $('repeatField').hidden = true;
@@ -1751,7 +1836,8 @@ function startEditSeries(s) {
   $('nTitle').value = s.title || ''; $('nDate').value = s.date; $('nTime').value = s.time || '';
   $('nFormat').value = s.format || 'Commander'; $('nMin').value = s.min || 4;
   $('nPlace').value = s.place || ''; $('nHost').value = s.host || ''; $('nNote').value = s.note || ''; $('nAddress').value = s.address || '';
-  $('nBracket').value = String(s.bracket || 0); updateBracketUI();
+  $('nBracket').value = String(s.bracket || 0); updateBracketUI(); $('nRegion').value = validRegion(s.region);
+  S.formLock = baseOf(s);
   $('nRepeat').value = s.freq; $('optNone').disabled = true;
   $('nEnds').value = s.count ? 'count' : s.until ? 'until' : 'never';
   if (s.count) $('nCount').value = s.count;
@@ -1778,14 +1864,15 @@ function seriesFromForm(date, time) {
 function submitSeries(date, time) {
   var s = seriesFromForm(date, time); if (!s) return;
   s.skips = []; s.by = S.uid; s.at = Date.now();
-  S.db.collection('series').add(s).then(function (ref) {
-    s.id = ref.id;
+  var base = formBase();
+  S.db.collection(base + 'series').add(s).then(function (ref) {
+    s.id = ref.id; if (base) s._priv = base.split('/')[1];
     var first = seriesDates(s, date, addDaysYmd(date, 400), 1)[0];
     if (first) saveMe(function (c) { c.res = c.res || {}; c.res[occurrence(s, first).id] = 'yes'; });
     var text = ['New game night: ' + s.title].concat(seriesLines(s, podById()), ['Answer in one tap: ' + PAGE]).join('\n');
     resetNightForm(); closeSheet();
     toast('Recurring game posted');
-    return announce(text, 'Recurring game posted', { kind: 'series', id: ref.id });
+    return announce(text, 'Recurring game posted', { kind: 'series', id: ref.id, pod: podOfBase(base) });
   }).catch(writeError);
 }
 function submitSeriesEdit() {
@@ -1795,16 +1882,28 @@ function submitSeriesEdit() {
   if (!date) { toast('Pick a date first.'); return; }
   var s = seriesFromForm(date, $('nTime').value || ''); if (!s) return;
   var full = Object.assign(s, { skips: old.skips || [], by: old.by, at: old.at || Date.now() });
-  var moved = ['date', 'time', 'place', 'host', 'address', 'bracket', 'freq', 'count', 'until'].some(function (k) { return (full[k] || '') !== (old[k] || ''); });
-  S.db.doc('series/' + old.id).set(full).then(function () {
+  var moved = ['date', 'time', 'place', 'host', 'address', 'region', 'bracket', 'freq', 'count', 'until'].some(function (k) { return (full[k] || '') !== (old[k] || ''); });
+  S.db.doc(baseOf(old) + 'series/' + old.id).set(full).then(function () {
     resetNightForm(); closeSheet();
     toast('Recurring game updated');
     if (moved) {
       full.id = old.id;
       var text = ['Updated: ' + full.title].concat(seriesLines(full, podById()), ['Details: ' + PAGE]).join('\n');
-      return announce(text, 'Update posted', { kind: 'seriesUpdated', id: old.id });
+      return announce(text, 'Update posted', { kind: 'seriesUpdated', id: old.id, pod: old._priv || '' });
     }
   }).catch(writeError);
+}
+// "Only show the address to people who are in": the address moves to a separate, locked-down document.
+function hideAddress(doc) {
+  var on = $('nAddrIn').checked && !$('addrInRow').hidden && !!doc.address;
+  doc.addrIn = on;
+  if (!on) return null;
+  var hidden = { address: doc.address, lat: doc.lat, lng: doc.lng };
+  doc.address = ''; doc.lat = null; doc.lng = null;
+  return hidden;
+}
+function updateAddrInUI() {
+  $('addrInRow').hidden = S.mode === 'poll' || $('nRepeat').value !== 'none' || !!S.editingSeries;
 }
 function formCommon() {
   var format = $('nFormat').value;
@@ -1814,6 +1913,7 @@ function formCommon() {
     min: Math.min(12, Math.max(2, parseInt($('nMin').value, 10) || 4)),
     place: $('nPlace').value.trim(), host: $('nHost').value.trim(),
     address: $('nAddress').value.trim().slice(0, 120), lat: S.formPlace.lat, lng: S.formPlace.lng,
+    region: validRegion($('nRegion').value),
     bracket: hasBrackets(format) ? Math.min(4, Math.max(0, parseInt($('nBracket').value, 10) || 0)) : 0,
     podIds: Array.from(S.formPods), note: $('nNote').value.trim()
   };
@@ -1825,12 +1925,14 @@ function submitNights() {
   var time = $('nTime').value || '';
   if ($('nRepeat').value !== 'none') { submitSeries(date, time); return; }
   var doc = Object.assign(formCommon(), { date: date, time: time, by: S.uid, at: Date.now() });
-  S.db.collection('nights').add(doc).then(function (ref) {
+  var hide = hideAddress(doc), base = formBase();
+  S.db.collection(base + 'nights').add(doc).then(function (ref) {
+    if (hide) { S.hidden[ref.id] = hide; S.db.doc(base + 'nights/' + ref.id + '/hidden/place').set(hide).catch(writeError); }
     saveMe(function (c) { c.res = c.res || {}; c.res[ref.id] = 'yes'; });
     var text = ['New game night: ' + doc.title].concat(nightDetails(doc, podById()), ['Answer in one tap: ' + PAGE]).join('\n');
     resetNightForm(); closeSheet();
     toast('Night posted');
-    return announce(text, null, { kind: 'night', ids: [ref.id] });
+    return announce(text, null, { kind: 'night', ids: [ref.id], pod: podOfBase(base) });
   }).catch(writeError);
 }
 function submitPoll() {
@@ -1846,7 +1948,8 @@ function submitPoll() {
   options.sort(function (a, b) { return (a.date + a.time).localeCompare(b.date + b.time); });
   options.forEach(function (o, i) { o.id = 'o' + i; });
   var doc = Object.assign(formCommon(), { options: options, by: S.uid, at: Date.now() });
-  S.db.collection('polls').add(doc).then(function (ref) {
+  var base = formBase();
+  S.db.collection(base + 'polls').add(doc).then(function (ref) {
     var pm = podById();
     var lines = ['Which night works? ' + doc.title];
     options.forEach(function (o) { lines.push('- ' + fmtWhen(o.date, o.time, true)); });
@@ -1860,7 +1963,7 @@ function submitPoll() {
     var text = lines.join('\n');
     resetNightForm(); closeSheet();
     toast('Poll posted');
-    return announce(text, 'Poll posted', { kind: 'poll', id: ref.id });
+    return announce(text, 'Poll posted', { kind: 'poll', id: ref.id, pod: podOfBase(base) });
   }).catch(writeError);
 }
 function submitEdit() {
@@ -1869,14 +1972,17 @@ function submitEdit() {
   var date = $('nDate').value;
   if (!date) { toast('Pick a date first.'); return; }
   var patch = Object.assign(formCommon(), { date: date, time: $('nTime').value || '' });
+  var hide = hideAddress(patch), hpath = baseOf(old) + 'nights/' + old.id + '/hidden/place';
   var moved = patch.date !== old.date || patch.time !== (old.time || '') || patch.place !== (old.place || '') || patch.host !== (old.host || '');
   var merged = Object.assign({}, old, patch);
-  S.db.doc('nights/' + old.id).update(patch).then(function () {
+  if (hide) { S.hidden[old.id] = hide; S.db.doc(hpath).set(hide).catch(writeError); }
+  else if (old.addrIn) S.db.doc(hpath).delete().catch(function () {});
+  S.db.doc(baseOf(old) + 'nights/' + old.id).update(patch).then(function () {
     resetNightForm(); closeSheet();
     toast('Night updated');
     if (moved) {
       var text = ['Updated: ' + merged.title].concat(nightDetails(merged, podById()), ['Details: ' + PAGE]).join('\n');
-      return announce(text, 'Update posted', { kind: 'updated', id: old.id });
+      return announce(text, 'Update posted', { kind: 'updated', id: old.id, pod: old._priv || '' });
     }
   }).catch(writeError);
 }
@@ -1888,6 +1994,8 @@ function copyText(text) {
 }
 function wireForms() {
   FORMATS.forEach(function (f) { $('nFormat').append(h('option', { value: f, text: f })); });
+  REGIONS.forEach(function (r) { $('nRegion').append(h('option', { value: r, text: r })); $('fRegion').append(h('option', { value: r, text: r })); });
+  $('fRegion').addEventListener('change', function (e) { S.f.region = validRegion(e.target.value); renderFilter(); renderPolls(); renderNights(); });
   resetNightForm();
   $('callBtn').addEventListener('click', function () {
     if (needNick()) return;
@@ -1909,6 +2017,8 @@ function wireForms() {
   $('podDelete').addEventListener('click', deletePodFromForm);
   $('podForm').querySelectorAll('input[name=mana]').forEach(function (r) { r.addEventListener('change', renderBannerPick); });
   document.querySelectorAll('#podJoinSeg button').forEach(function (b) { b.addEventListener('click', function () { setPodJoin(b.dataset.join); }); });
+  document.querySelectorAll('#podVisSeg button').forEach(function (b) { b.addEventListener('click', function () { setPodVis(b.dataset.vis); }); });
+  $('nAddrIn').addEventListener('change', function () {});
   $('inviteOpen').addEventListener('click', function () { var f = $('inviteForm'); f.hidden = !f.hidden; if (!f.hidden) fillInviteSelects(); });
   $('inviteCancel').addEventListener('click', function () { $('inviteForm').hidden = true; });
   $('invPod').addEventListener('change', fillInviteSelects);
@@ -1985,6 +2095,7 @@ function wireForms() {
     var old = S.editingSeries ? seriesById(S.editingSeries) : S.editing ? S.nights.filter(function (x) { return x.id === S.editing; })[0] : null;
     var btn = $('nightSubmit'), label = btn.textContent;
     var address = $('nAddress').value.trim().slice(0, 120);
+    try { if (validRegion($('nRegion').value)) localStorage.setItem('pp.region', $('nRegion').value); } catch (e) {}
     S.placeBusy = true;
     if (address && !(old && old.address === address)) { btn.disabled = true; btn.textContent = 'Finding the address…'; }
     resolvePlace(address, old).then(function (pl) {
@@ -2003,6 +2114,118 @@ function wireForms() {
   $('deckDelete').addEventListener('click', deleteDeck);
   $('deckForm').addEventListener('submit', function (e) { e.preventDefault(); submitDeck(); });
   $('nFormat').addEventListener('change', updateBracketUI);
+}
+
+/* ---------- loading the board: public data plus the private pods you can see ---------- */
+function tagged(list, podId) { return list.map(function (o) { o._priv = podId; return o; }); }
+function mergeData() {
+  var privPods = Object.keys(S.priv.pods).map(function (id) { return S.priv.pods[id]; });
+  var pubIds = {}; S.pub.pods.forEach(function (p) { pubIds[p.id] = true; });
+  S.pods = S.pub.pods.concat(privPods.filter(function (p) { return !pubIds[p.id]; }));
+  ['nights', 'series', 'polls'].forEach(function (k) {
+    var all = S.pub[k].slice();
+    Object.keys(S.priv.data).forEach(function (id) { if (S.priv.data[id][k]) all = all.concat(S.priv.data[id][k]); });
+    S[k] = all;
+  });
+}
+function snapDocs(snap) { return snap.docs.map(function (d) { var o = d.data(); o.id = d.id; return o; }); }
+function unsub(key) { var f = S.subs[key]; if (f) { try { f(); } catch (e) {} delete S.subs[key]; } }
+// Private pods you can see: as an organizer, all of them; otherwise the ones you're in, invited to, or created.
+function syncPrivate() {
+  if (!S.db || S.state !== 'ok' || !S.uid) return;
+  var pubIds = {}; S.pub.pods.forEach(function (p) { pubIds[p.id] = true; });
+  var want = {};
+  if (!S.isAdmin) {
+    myPods().concat(S.invites.filter(function (x) { return x.uid === S.uid; }).map(function (x) { return x.podId; }))
+      .forEach(function (id) { if (id && !pubIds[id]) want[id] = true; });
+    Object.keys(want).forEach(function (id) {
+      var key = 'pod:' + id;
+      if (S.subs[key]) return;
+      S.subs[key] = S.db.doc('privpods/' + id).onSnapshot(function (snap) {
+        if (snap.exists) { var o = snap.data(); o.id = id; o.private = true; S.priv.pods[id] = o; }
+        else if (!S.privByMe[id]) delete S.priv.pods[id];
+        mergeData(); syncPrivate(); renderAll();
+      }, function () { delete S.priv.pods[id]; mergeData(); renderAll(); });
+    });
+    Object.keys(S.subs).forEach(function (key) {
+      if (key.indexOf('pod:') === 0 && !want[key.slice(4)]) {
+        unsub(key);
+        var id = key.slice(4);
+        if (!S.privByMe[id]) delete S.priv.pods[id];
+      }
+    });
+  }
+  // The games of private pods you're in (organizers: every private pod).
+  var mine = {}; myPods().forEach(function (id) { mine[id] = true; });
+  var dataFor = {};
+  Object.keys(S.priv.pods).forEach(function (id) { if (S.isAdmin || mine[id]) dataFor[id] = true; });
+  Object.keys(dataFor).forEach(function (id) {
+    ['nights', 'series', 'polls'].forEach(function (k) {
+      var key = 'data:' + id + ':' + k;
+      if (S.subs[key]) return;
+      S.subs[key] = S.db.collection('privpods/' + id + '/' + k).onSnapshot(function (snap) {
+        (S.priv.data[id] = S.priv.data[id] || {})[k] = tagged(snapDocs(snap), id);
+        mergeData(); renderAll();
+      }, function () { if (S.priv.data[id]) delete S.priv.data[id][k]; mergeData(); renderAll(); });
+    });
+  });
+  Object.keys(S.subs).forEach(function (key) {
+    if (key.indexOf('data:') !== 0) return;
+    var id = key.split(':')[1];
+    if (!dataFor[id]) { unsub(key); delete S.priv.data[id]; }
+  });
+  mergeData();
+}
+// A hidden address ("only people who are in"): readable by the host, organizers and people who said I'm in.
+function canSeeHidden(n) { return S.isAdmin || mineId(n.by) || (me() && answerOf(me(), n) === 'yes'); }
+function hiddenPlace(n) {
+  if (!n.addrIn || n.virtual) return null;
+  var path = baseOf(n) + 'nights/' + n.id + '/hidden/place';
+  var ok = canSeeHidden(n), key = path + (ok ? ':ok' : ':no');
+  if (!ok) { if (S.hiddenSubs[path]) { try { S.hiddenSubs[path].stop(); } catch (e) {} delete S.hiddenSubs[path]; } delete S.hidden[n.id]; return null; }
+  var cur = S.hiddenSubs[path];
+  if (!cur || (cur.failed && Date.now() - cur.failed > 2000)) {
+    if (cur) { try { cur.stop(); } catch (e) {} }
+    var rec = { stop: null, failed: 0 };
+    S.hiddenSubs[path] = rec;
+    rec.stop = S.db.doc(path).onSnapshot(function (snap) {
+      if (snap.exists) S.hidden[n.id] = snap.data(); else delete S.hidden[n.id];
+      renderNights();
+    }, function () { rec.failed = Date.now(); setTimeout(renderNights, 2500); });
+  }
+  return S.hidden[n.id] || null;
+}
+// Several writes that must happen together (a batch where the backend has one).
+function writeAll(ops) {
+  if (S.db.batch) {
+    var b = S.db.batch();
+    ops.forEach(function (o) { if (o[0] === 'delete') b.delete(o[1]); else b[o[0]](o[1], o[2]); });
+    return b.commit();
+  }
+  return ops.reduce(function (p, o) { return p.then(function () { var d = S.db.doc(o[1]); return o[0] === 'delete' ? d.delete() : d[o[0]](o[2]); }); }, Promise.resolve());
+}
+function stripLocal(o) { var c = JSON.parse(JSON.stringify(o)); delete c.id; delete c._priv; delete c.private; delete c.virtual; return c; }
+// Organizers can move a pod (and the games that are only for it) between the public board and private.
+function movePod(p, toPrivate) {
+  var id = p.id, ops = [], from = toPrivate ? '' : 'privpods/' + id + '/', to = toPrivate ? 'privpods/' + id + '/' : '';
+  var pod = stripLocal(p);
+  if (toPrivate) { pod.join = 'invite'; pod.openSeats = false; }
+  ops.push(['set', toPrivate ? 'privpods/' + id : 'pods/' + id, pod]);
+  ['nights', 'series', 'polls'].forEach(function (k) {
+    S[k].forEach(function (x) {
+      var ids = x.podIds || [];
+      if (toPrivate ? (x._priv || ids.indexOf(id) < 0) : x._priv !== id) return;
+      if (toPrivate && ids.length > 1) { ops.push(['update', k + '/' + x.id, { podIds: ids.filter(function (y) { return y !== id; }) }]); return; }
+      ops.push(['set', to + k + '/' + x.id, stripLocal(x)]);
+      if (k === 'nights' && x.addrIn && S.hidden[x.id]) {
+        ops.push(['set', to + 'nights/' + x.id + '/hidden/place', S.hidden[x.id]]);
+        ops.push(['delete', from + 'nights/' + x.id + '/hidden/place']);
+      }
+      ops.push(['delete', from + k + '/' + x.id]);
+    });
+  });
+  ops.push(['delete', toPrivate ? 'pods/' + id : 'privpods/' + id]);
+  return writeAll(ops);
 }
 
 /* ---------- boot ---------- */
@@ -2037,12 +2260,26 @@ async function boot() {
   renderAll();
   if (!S.db || S.state !== 'ok') return;
   setTimeout(function () { if (!allConfirmed()) { S.slow = true; renderAll(); } }, 10000);
-  sub('pods', 'pods', function (a) { S.pods = a; });
-  sub('nights', 'nights', function (a) { S.nights = a; });
-  sub('polls', 'polls', function (a) { S.polls = a; });
-  sub('series', 'series', function (a) { S.series = a; });
-  sub(PEOPLE, 'people', function (a) { var m = {}; a.forEach(function (p) { m[p.id] = p; }); S.people = m; });
-  sub('invites', null, function (a) { S.invites = a; });
+  S.privByMe = {};
+  sub('pods', 'pods', function (a) { S.pub.pods = a; mergeData(); syncPrivate(); });
+  sub('nights', 'nights', function (a) { S.pub.nights = a; mergeData(); });
+  sub('polls', 'polls', function (a) { S.pub.polls = a; mergeData(); });
+  sub('series', 'series', function (a) { S.pub.series = a; mergeData(); });
+  if (S.isAdmin) {
+    S.db.collection('privpods').onSnapshot(function (snap) {
+      var m = {}; snapDocs(snap).forEach(function (o) { o.private = true; m[o.id] = o; });
+      S.priv.pods = m; mergeData(); syncPrivate(); renderAll();
+    }, function () {});
+  } else if (S.db.collection('privpods').where) {
+    S.db.collection('privpods').where('by', '==', S.uid).onSnapshot(function (snap) {
+      var mineNow = {};
+      snapDocs(snap).forEach(function (o) { o.private = true; mineNow[o.id] = true; S.priv.pods[o.id] = o; });
+      Object.keys(S.privByMe).forEach(function (id) { if (!mineNow[id] && !S.subs['pod:' + id]) delete S.priv.pods[id]; });
+      S.privByMe = mineNow; mergeData(); syncPrivate(); renderAll();
+    }, function () {});
+  }
+  sub(PEOPLE, 'people', function (a) { var m = {}; a.forEach(function (p) { m[p.id] = p; }); S.people = m; syncPrivate(); });
+  sub('invites', null, function (a) { S.invites = a; syncPrivate(); });
   if (HELPER && S.uid) subDoc('links/' + S.uid, function (d) { S.link = d.discordId ? d : null; });
   if (ACCOUNTS) {
     subDoc('config/settings', function (d) { S.settings = { open: !!d.open, blocked: d.blocked || [] }; });

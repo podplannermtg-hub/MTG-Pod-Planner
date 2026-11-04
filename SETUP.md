@@ -121,8 +121,10 @@ Open `firestore.rules`, put your email back in on the `PASTE_YOUR_EMAIL` line, p
 2. Under **OAuth2**, copy the **Client ID**, then click **Reset Secret** and copy the **Client Secret**.
 3. Under **Bot**, click **Reset Token** and copy the **token**. No privileged intents are needed.
 4. Add the bot to your server by opening this link, with your Client ID in place of `CLIENT_ID`:
-   `https://discord.com/oauth2/authorize?client_id=CLIENT_ID&scope=bot&permissions=268569601`
-   This grants Manage Roles, View Channels, Send Messages, Mention roles, and Create Invite.
+   `https://discord.com/oauth2/authorize?client_id=CLIENT_ID&scope=bot&permissions=268635153`
+   This grants Manage Roles, Manage Channels, View Channels, Send Messages, Read Message History, Mention roles, and Create Invite. Manage Channels is for private pods, which each get a private channel.
+
+   **Already added the bot before private pods?** In Discord, open **Server Settings → Roles**, pick the bot's role (named after your app), and turn on **Manage Channels** and **Read Message History**. Keep the bot's role above the pod roles in the list.
 5. In Discord, turn on **User Settings → Advanced → Developer Mode**. Then right-click your server and choose **Copy Server ID**, and right-click your game-nights channel and choose **Copy Channel ID**.
 6. Optional but recommended: go to **Server Settings → Overview → Default Notification Settings** and choose **Only @mentions**. Then only the pinged pods get notified.
 
@@ -168,6 +170,7 @@ Once the helper is running, the GitHub reminder job sees that and stops sending 
 **Pods in the app:**
 - **Who can join:** *Anyone* means people tap to join. *Invite only* means members invite people in, and the invitee taps **Join pod**. Everyone can still see an invite-only pod's nights and answer them.
 - **@Open Seats:** whether that pod's short nights get advertised to @Open Seats. Nights show "Open table" or "Pod only".
+- **Who can see it:** *Everyone*, or *Members only* (a private pod). A private pod, who is in it, and its games are visible only to its members, people invited to it, and organizers. It's always invite only and never calls @Open Seats. With the helper, it gets a private Discord channel that only its role can see, and its games, reminders and "Game on" go there instead of the shared channel. Only organizers can switch an existing pod between public and private; its own games move with it.
 
 ## Security checklist (all free)
 

@@ -4,7 +4,7 @@ import {
   getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, sendEmailVerification, sendPasswordResetEmail, signOut
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
-import { getFirestore, collection, doc, getDoc, onSnapshot, addDoc, setDoc, updateDoc, deleteDoc } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+import { getFirestore, collection, doc, getDoc, onSnapshot, addDoc, setDoc, updateDoc, deleteDoc, query, where, writeBatch } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
 
 const CONFIG = {
   firebase: ((window.POD_CONFIG || {}).firebase) || {},
@@ -84,15 +84,26 @@ const BACKEND = {
     let isAdmin = false;
     try { await getDoc(doc(fs, 'config', 'members')); isAdmin = true; } catch (e) {}
 
+    const listen = (q, next, err) => onSnapshot(q, (snap) => {
+      next({ docs: snap.docs.map((d) => ({ id: d.id, data: () => d.data() })), metadata: snap.metadata });
+    }, err);
     const db = {
       collection(name) {
         return {
-          onSnapshot(next, err) {
-            return onSnapshot(collection(fs, name), (snap) => {
-              next({ docs: snap.docs.map((d) => ({ id: d.id, data: () => d.data() })), metadata: snap.metadata });
-            }, err);
+          onSnapshot(next, err) { return listen(collection(fs, name), next, err); },
+          where(field, op, value) {
+            return { onSnapshot(next, err) { return listen(query(collection(fs, name), where(field, op, value)), next, err); } };
           },
           add(data) { return addDoc(collection(fs, name), data).then((r) => ({ id: r.id })); }
+        };
+      },
+      batch() {
+        const b = writeBatch(fs), ref = (path) => doc(fs, ...path.split('/'));
+        return {
+          set(path, d) { b.set(ref(path), d); },
+          update(path, d) { b.update(ref(path), d); },
+          delete(path) { b.delete(ref(path)); },
+          commit() { return b.commit(); }
         };
       },
       doc(path) {

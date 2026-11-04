@@ -170,7 +170,7 @@ a.link{display:inline-block}
 .small{padding:7px 12px;font-size:13px}
 .grow{flex:1 1 220px}
 .headctl{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-.filters{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,170px) minmax(0,150px) auto;gap:8px;align-items:center}
+.filters{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,160px) minmax(0,140px) minmax(0,140px) auto;gap:8px;align-items:center}
 .filters select,.filters input{padding:8px 10px}
 .grouphead{font-family:var(--font-mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600;margin:4px 0 -6px}
 .dates{display:flex;flex-wrap:wrap;gap:6px}
@@ -447,6 +447,11 @@ a.dname{text-decoration:underline;text-decoration-color:var(--line);text-underli
 .artcredit{font-size:10px;line-height:1.2;color:color-mix(in srgb,var(--ink) 80%,transparent);background:color-mix(in srgb,var(--surface) 70%,transparent);align-self:flex-start;padding:1px 6px;border-radius:4px;margin-top:-6px;overflow-wrap:anywhere}
 .card.compact .deckpick{display:none}
 .dline a{display:inline-block;padding:4px 0;min-height:24px}
+
+/* ---------- area tags ---------- */
+.regionchip{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;padding:3px 9px;border-radius:999px;background:var(--surface);color:var(--ink);white-space:nowrap;box-shadow:inset 0 0 0 1.5px var(--accent-text)}
+.regionchip::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--accent-text)}
+.meta .regionchip{align-self:center}
 </style>
 </head>
 <body>
@@ -562,6 +567,14 @@ a.dname{text-decoration:underline;text-decoration-color:var(--line);text-underli
         <div class="banners" id="podBannerPick" role="group" aria-label="Banner pattern for this pod's games"></div>
       </fieldset>
       <fieldset class="field">
+        <legend>Who can see it</legend>
+        <div class="seg" id="podVisSeg" role="group" aria-label="Who can see this pod">
+          <button type="button" data-vis="public" aria-pressed="true">Everyone</button>
+          <button type="button" data-vis="private" aria-pressed="false">Members only</button>
+        </div>
+        <p class="hint" id="podVisHint"></p>
+      </fieldset>
+      <fieldset class="field" id="podJoinField">
         <legend>Who can join</legend>
         <div class="seg" id="podJoinSeg" role="group" aria-label="Who can join this pod">
           <button type="button" data-join="open" aria-pressed="true">Anyone</button>
@@ -569,7 +582,7 @@ a.dname{text-decoration:underline;text-decoration-color:var(--line);text-underli
         </div>
         <p class="hint" id="podJoinHint"></p>
       </fieldset>
-      <label class="check"><input type="checkbox" id="podOpenSeats" checked><span>Call <b>@Open Seats</b> when one of this pod's nights is short</span></label>
+      <label class="check" id="podOpenSeatsRow"><input type="checkbox" id="podOpenSeats" checked><span>Call <b>@Open Seats</b> when one of this pod's nights is short</span></label>
       <div class="row">
         <button class="primary" type="submit" id="podSubmit">Add pod</button>
         <button class="ghost" type="button" id="podCancel">Cancel</button>
@@ -600,6 +613,7 @@ a.dname{text-decoration:underline;text-decoration-color:var(--line);text-underli
       <input id="fSearch" type="search" placeholder="Search by name, place, address or host" aria-label="Search games" autocomplete="off">
       <select id="fPod" aria-label="Show games for"><option value="all">All pods</option><option value="mine">My pods</option></select>
       <select id="fFormat" aria-label="Format"><option value="">Any format</option></select>
+      <select id="fRegion" aria-label="Area"><option value="">Any area</option></select>
       <button class="link" type="button" id="fClear" hidden>Clear filters</button>
     </div>
     <p class="hint" id="fCount" hidden></p>
@@ -708,9 +722,11 @@ a.dname{text-decoration:underline;text-decoration-color:var(--line);text-underli
       <select id="nBracket"><option value="0">Any bracket</option><option value="1">1 or lower</option><option value="2">2 or lower</option><option value="3">3 or lower</option><option value="4">4 or lower</option></select></div>
   </div>
   <div class="grid">
+    <div class="field"><label for="nRegion">Area</label><select id="nRegion" required><option value="">Choose an area</option></select></div>
     <div class="field"><label for="nPlace">Where</label><input id="nPlace" type="text" maxlength="80" placeholder="Dan's place, or the shop"></div>
     <div class="field"><label for="nHost">Host</label><input id="nHost" type="text" maxlength="40" placeholder="Dan"></div>
     <div class="field wide"><label for="nAddress">Address <span class="optl">optional</span></label><input id="nAddress" type="text" maxlength="120" autocomplete="off" placeholder="123 Main St, Columbus, OH">
+      <label class="check" id="addrInRow"><input type="checkbox" id="nAddrIn"><span>Only show the address to people who are in</span></label>
       <p class="hint fine">Shown in the app only, not in Discord. People can tap it for directions. For a home game, cross streets work too. <span class="osm">Map search by <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap</a></span></p></div>
   </div>
   <fieldset class="field">
@@ -728,7 +744,7 @@ a.dname{text-decoration:underline;text-decoration-color:var(--line);text-underli
 </form>
 <div id="toast" role="status" hidden></div>
 
-<script src="config.js?v=398b429362"></script>
-<script type="module" src="app.js?v=398b429362"></script>
+<script src="config.js?v=2b9b82d8a9"></script>
+<script type="module" src="app.js?v=2b9b82d8a9"></script>
 </body>
 </html>

@@ -52,6 +52,7 @@ async function open(browser, auth, seed, extra, viewport) {
     window.__seed = s; window.__auth = a; Object.assign(window, x || {});
     // Most flows below read the whole card, so start cards open unless a test asks for the default.
     try { if (!window.__defaultCards) localStorage.setItem('pp.cards', 'open'); else localStorage.removeItem('pp.cards'); } catch (e) {}
+    try { if (!window.__noRegion) localStorage.setItem('pp.region', 'Lower Bucks'); } catch (e) {}
   }, [seed, auth, extra]);
   await page.goto('file://' + path.resolve(OUT));
   return { page, errors, posts, ctx, geo };
@@ -475,9 +476,17 @@ const calls = (page) => page.evaluate(() => window.__calls);
     s = await store(page);
     const bn = Object.values(s.nights).find((n) => n.title === 'Brewery Night');
     check('night saves address and map point', bn.address === '123 Main St, Columbus, OH' && bn.lat === 39.9612 && bn.lng === -82.9988, bn);
+    check('area tag saved (last area remembered)', bn.region === 'Lower Bucks');
+    check('Discord message names the area', posts.some((p) => p.includes('Rogue Brewing (Lower Bucks)')), posts);
     check('Discord message leaves the address out', posts.some((p) => p.startsWith('New game night: Brewery Night')) && !posts.some((p) => p.includes('Main St')), posts);
     await page.click('#closeAnnounce');
     const dist = await card('Brewery Night').locator('.distchip').innerText();
+    check('area tag shown on the card', (await card('Brewery Night').locator('.regionchip').innerText()) === 'Lower Bucks');
+    await page.selectOption('#fRegion', 'MontCo');
+    check('area filter', (await page.locator('article.night').count()) === 0 && await page.isVisible('#fClear'));
+    await page.selectOption('#fRegion', 'Lower Bucks');
+    check('area filter shows that area', (await page.locator('article.night').count()) === 1);
+    await page.click('#fClear');
     check('card shows rough distance', /^1\d(\.\d)? mi$/.test(dist), dist);
     check('address opens directions', (await card('Brewery Night').locator('a.addr').getAttribute('href')).startsWith('https://www.google.com/maps/dir/?api=1&destination=123%20Main%20St'));
     check('calendar location includes the address', decodeURIComponent(await card('Brewery Night').locator('a:has-text("Google Calendar")').getAttribute('href')).includes('location=Rogue Brewing, 123 Main St, Columbus, OH'));
@@ -575,6 +584,168 @@ const calls = (page) => page.evaluate(() => window.__calls);
     await page.context().close();
   }
 
+  /* ===== private pods ===== */
+  const privSeed = () => {
+    const seed = baseSeed();
+    seed.people.other1 = { nick: 'Dana', pods: ['p1', 'pp1'], res: {} };
+    seed.people.me1 = { nick: 'Rob', pods: ['p1'], res: {} };
+    seed.privpods = { pp1: { name: 'Secret Sweats', mana: 'B', by: 'old1', join: 'invite', openSeats: false, at: 1 } };
+    seed['privpods/pp1/nights'] = { s1: { title: 'Secret Night', date: plus(2), time: '20:00', format: 'Commander', min: 4, podIds: ['pp1'], by: 'old1', at: 1, region: 'MontCo' } };
+    seed.people.old1.pods = ['p1', 'pp1'];
+    return seed;
+  };
+  {
+    // Rob is not in the private pod and has no invite: he never sees it, and the app never asks for it.
+    const { page, errors } = await open(browser, { state: 'ok', uid: 'me1', email: 'me@example.com', isAdmin: false }, privSeed(), { __rules: true });
+    await page.waitForSelector('article.night', { state: 'attached' });
+    await page.waitForTimeout(200);
+    await tab(page, 'pods');
+    check('outsider: private pod not listed', !(await page.innerText('#pods')).includes('Secret Sweats'));
+    await tab(page, 'games');
+    check('outsider: private game not shown', (await page.locator('article.night', { hasText: 'Secret Night' }).count()) === 0);
+    const listens = await page.evaluate(() => window.__listens);
+    check('outsider: only asks for what the rules allow', listens.some((l) => l[0] === 'privpods' && l[1] === 'by') && !listens.some((l) => l[0] === 'privpods' && l.length === 1) && !listens.some((l) => String(l[0]).startsWith('privpods/')), listens);
+    check('outsider: no errors', errors.length === 0, errors);
+    await page.context().close();
+  }
+  {
+    // Dana is in it: she sees it, posts a game for it, and it stays out of the shared webhook.
+    const { page, errors, posts } = await open(browser, { state: 'ok', uid: 'other1', email: 'dana@example.com', isAdmin: false }, withDiscord(privSeed()), { __rules: true });
+    await page.waitForSelector('article.night:has-text("Secret Night")');
+    check('member: private game shown', (await page.locator('article.night', { hasText: 'Secret Night' }).count()) === 1);
+    await tab(page, 'pods');
+    check('member: private pod listed with a badge', (await page.locator('.chip', { hasText: 'Secret Sweats' }).innerText()).includes('private'));
+    await tab(page, 'games');
+    await page.click('#callBtn');
+    await page.check('#formPods label:has-text("Tuesday Commander") input');
+    await page.check('#formPods label:has-text("Secret Sweats") input');
+    check('picking a private pod clears the others', !(await page.isChecked('#formPods label:has-text("Tuesday Commander") input')) && (await page.innerText('#formPods')).includes('Only Secret Sweats will see this game'));
+    await page.fill('#nTitle', 'Sweaty Night'); await page.click('#nightSubmit');
+    await page.waitForSelector('#announce:not([hidden])');
+    let s = await store(page);
+    const sw = Object.values(s['privpods/pp1/nights']).find((n) => n.title === 'Sweaty Night');
+    check('private game saved inside the pod', !!sw && JSON.stringify(sw.podIds) === '["pp1"]' && !Object.values(s.nights).some((n) => n.title === 'Sweaty Night'));
+    check('private game not sent to the shared webhook', posts.length === 0, posts);
+    await page.click('#closeAnnounce');
+    await page.locator('article.night', { hasText: 'Secret Night' }).getByRole('button', { name: "I'm in" }).click();
+    await page.waitForTimeout(150);
+    check('answering a private game', (await store(page)).people.other1.res.s1 === 'yes');
+    // leaving a private pod takes two taps
+    await tab(page, 'pods');
+    await page.click('.chip:has-text("Secret Sweats")');
+    check('leaving a private pod asks first', ((await store(page)).people.other1.pods || []).includes('pp1') && (await page.innerText('#toast')).includes('Tap again to leave'));
+    await page.click('.chip:has-text("Secret Sweats")');
+    await page.waitForFunction(() => !window.__store.people.other1.pods.includes('pp1'));
+    await page.waitForTimeout(200);
+    check('after leaving, the pod and its games disappear', !(await page.innerText('#pods')).includes('Secret Sweats') && (await page.locator('article.night', { hasText: 'Secret Night', state: 'attached' }).count()) === 0);
+    check('member: no errors', errors.length === 0, errors);
+    await page.context().close();
+  }
+  {
+    // Rob gets an invite: he sees the pod's name, joins, then sees its games. With the helper, announcements carry the pod.
+    const seed = privSeed();
+    seed.invites = { pp1_me1: { podId: 'pp1', uid: 'me1', by: 'old1', at: 1 } };
+    const { page, errors } = await open(browser, { state: 'ok', uid: 'me1', email: 'me@example.com', isAdmin: false }, seed, { __rules: true, __helper: true });
+    await page.waitForSelector('article.night', { state: 'attached' });
+    await tab(page, 'pods');
+    await page.waitForSelector('#invites .invite');
+    check('invitee sees the private pod name', (await page.innerText('#invites')).includes('Secret Sweats'));
+    check('invitee does not see its games yet', (await page.locator('article.night', { hasText: 'Secret Night', state: 'attached' }).count()) === 0);
+    await page.click('#invites button:has-text("Join pod")');
+    await page.waitForSelector('article.night:has-text("Secret Night")', { state: 'attached' });
+    check('after joining, its games appear', true);
+    await tab(page, 'games');
+    await page.click('#callBtn'); await page.check('#formPods label:has-text("Secret Sweats") input');
+    await page.fill('#nTitle', 'Helper Secret'); await page.click('#nightSubmit');
+    await page.waitForSelector('#announce:not([hidden])');
+    const hc = await page.evaluate(() => window.__helperCalls || []);
+    check('helper is told which private pod', hc.some((c) => c[0] === '/announce' && c[1].kind === 'night' && c[1].pod === 'pp1'), hc);
+    check('invitee: no errors', errors.length === 0, errors);
+    await page.context().close();
+  }
+  {
+    // A pod's creator makes a new private pod; an organizer moves pods between public and private.
+    const seed = privSeed();
+    seed.nights.n2 = { title: 'Draft Only Night', date: plus(5), time: '18:00', format: 'Draft', min: 4, podIds: ['p2'], by: 'x', at: 2 };
+    seed.nights.n3 = { title: 'Mixed Night', date: plus(6), time: '18:00', format: 'Draft', min: 4, podIds: ['p1', 'p2'], by: 'x', at: 3 };
+    seed.people.admin1 = { nick: 'Boss', pods: [], res: {} };
+    const { page, errors } = await open(browser, { state: 'ok', uid: 'admin1', email: 'boss@example.com', isAdmin: true }, seed, { __rules: true });
+    await page.waitForSelector('article.night:has-text("Secret Night")', { state: 'attached' });
+    check('organizer sees private games', true);
+    await tab(page, 'pods');
+    check('organizer sees private pods', (await page.innerText('#pods')).includes('Secret Sweats'));
+    await page.click('#addPodBtn');
+    await page.fill('#podName', 'Hidden Club');
+    await page.click('#podVisSeg button[data-vis=private]');
+    check('private hides join and Open Seats settings', !(await page.isVisible('#podJoinSeg')) && !(await page.isVisible('#podOpenSeats')));
+    await page.click('#podSubmit');
+    await page.waitForFunction(() => Object.values(window.__store.privpods || {}).some((p) => p.name === 'Hidden Club'));
+    let s = await store(page);
+    const hcId = Object.keys(s.privpods).find((k) => s.privpods[k].name === 'Hidden Club');
+    check('new private pod saved as invite only, no Open Seats', s.privpods[hcId].join === 'invite' && s.privpods[hcId].openSeats === false && !Object.values(s.pods).some((p) => p.name === 'Hidden Club'));
+    check('creator joins it', s.people.admin1.pods.includes(hcId));
+    // move Draft Crew (p2) to private
+    await page.locator('.chipwrap', { hasText: 'Draft Crew' }).locator('button.podedit').click();
+    await page.click('#podVisSeg button[data-vis=private]');
+    await page.click('#podSubmit');
+    await page.waitForFunction(() => window.__store.privpods && window.__store.privpods.p2);
+    s = await store(page);
+    check('pod moved to private', !s.pods.p2 && s.privpods.p2.name === 'Draft Crew' && s.privpods.p2.join === 'invite');
+    check('its own games moved with it', !s.nights.n2 && s['privpods/p2/nights'].n2.title === 'Draft Only Night');
+    check('shared games just drop it', JSON.stringify(s.nights.n3.podIds) === '["p1"]');
+    // and back
+    await page.locator('.chipwrap', { hasText: 'Draft Crew' }).locator('button.podedit').click();
+    await page.click('#podVisSeg button[data-vis=public]');
+    await page.click('#podSubmit');
+    await page.waitForFunction(() => window.__store.pods.p2);
+    s = await store(page);
+    check('pod moved back to public with its games', !s.privpods.p2 && s.nights.n2.title === 'Draft Only Night' && !(s['privpods/p2/nights'] || {}).n2);
+    check('organizer: no errors', errors.length === 0, errors);
+    await page.context().close();
+  }
+  {
+    // Not the organizer: can't change an existing pod's visibility.
+    const seed = privSeed(); seed.pods.p1.by = 'me1';
+    const { page } = await open(browser, { state: 'ok', uid: 'me1', email: 'me@example.com', isAdmin: false }, seed, { __rules: true });
+    await page.waitForSelector('article.night', { state: 'attached' });
+    await tab(page, 'pods');
+    await page.locator('.chipwrap', { hasText: 'Tuesday Commander' }).locator('button.podedit').click();
+    check('only organizers change an existing pod\'s visibility', await page.isDisabled('#podVisSeg button[data-vis=private]') && (await page.innerText('#podVisHint')).includes('Only an organizer'));
+    await page.context().close();
+  }
+  {
+    // "Only show the address to people who are in"
+    const seed = privSeed();
+    const a = await open(browser, { state: 'ok', uid: 'other1', email: 'dana@example.com', isAdmin: false }, seed, { __rules: true });
+    await a.page.waitForSelector('article.night', { state: 'attached' });
+    await a.page.click('#callBtn');
+    check('address option offered for one-off nights', await a.page.isVisible('#nAddrIn'));
+    await a.page.selectOption('#nRepeat', 'weekly');
+    check('not for recurring games', !(await a.page.isVisible('#nAddrIn')));
+    await a.page.selectOption('#nRepeat', 'none');
+    await a.page.fill('#nTitle', 'Home Game'); await a.page.check('#formPods label:has-text("Tuesday Commander") input');
+    await a.page.fill('#nAddress', '123 Main St, Columbus, OH'); await a.page.check('#nAddrIn');
+    await a.page.click('#nightSubmit');
+    await a.page.waitForFunction(() => Object.values(window.__store.nights).some((n) => n.title === 'Home Game'));
+    await a.page.waitForTimeout(300);
+    const st = await store(a.page);
+    const [hid, hn] = Object.entries(st.nights).find(([, n]) => n.title === 'Home Game');
+    check('address kept out of the game itself', hn.addrIn === true && hn.address === '' && hn.lat == null);
+    check('address saved separately', st['nights/' + hid + '/hidden'].place.address === '123 Main St, Columbus, OH' && st['nights/' + hid + '/hidden'].place.lat === 39.9612);
+    await a.page.click('#closeAnnounce').catch(() => {});
+    check('host still sees the address', (await a.page.locator('article.night', { hasText: 'Home Game' }).locator('a.addr').count()) === 1);
+    await a.page.context().close();
+    const b = await open(browser, { state: 'ok', uid: 'me1', email: 'me@example.com', isAdmin: false }, st, { __rules: true });
+    await b.page.waitForSelector('article.night:has-text("Home Game")', { state: 'attached' });
+    const hc = b.page.locator('article.night', { hasText: 'Home Game' });
+    check('not in yet: address hidden', (await hc.locator('a.addr').count()) === 0 && (await hc.innerText()).includes("Address shown once you're in") && (await hc.locator('.distchip').count()) === 0);
+    await hc.getByRole('button', { name: "I'm in" }).click();
+    await b.page.waitForSelector('article.night:has-text("Home Game") a.addr', { timeout: 8000 });
+    check('after I\'m in: address shown', (await hc.locator('a.addr').innerText()).includes('123 Main St'));
+    check('hidden address: no errors', b.errors.length === 0, b.errors);
+    await b.page.context().close();
+  }
+
   /* ===== phone layout: tabs, compact cards, the sheet ===== */
   {
     const seed = baseSeed();
@@ -616,6 +787,19 @@ const calls = (page) => page.evaluate(() => window.__calls);
     await page.click('.me-btn');
     check('phone: name chip opens Me', await page.locator('#view-me').isVisible());
     check('phone layout: no errors', errors.length === 0, errors);
+    await page.context().close();
+  }
+  {
+    // the area is required the first time
+    const seed = baseSeed(); seed.people.me1 = { nick: 'Rob', pods: [], res: {} };
+    const { page } = await open(browser, { state: 'ok', uid: 'me1', email: 'me@example.com', isAdmin: false }, seed, { __noRegion: true });
+    await page.waitForSelector('article.night', { state: 'attached' });
+    await page.click('#callBtn'); await page.fill('#nTitle', 'No Area Night'); await page.click('#nightSubmit');
+    await page.waitForTimeout(200);
+    check('a new game needs an area', !Object.values((await store(page)).nights).some((n) => n.title === 'No Area Night') && await page.isVisible('#nightForm'));
+    await page.selectOption('#nRegion', 'MontCo'); await page.click('#nightSubmit');
+    await page.waitForFunction(() => Object.values(window.__store.nights).some((n) => n.title === 'No Area Night'));
+    check('area chosen, game posts', Object.values((await store(page)).nights).find((n) => n.title === 'No Area Night').region === 'MontCo');
     await page.context().close();
   }
   {
