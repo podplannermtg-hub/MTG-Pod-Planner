@@ -156,7 +156,7 @@ var S = {
   series: [], sel: {}, f: { q: '', pod: 'all', format: '' }, editingSeries: null,
   loaded: { pods: false, nights: false, polls: false, people: false, series: false },
   confirmed: { pods: false, nights: false, polls: false, people: false, series: false },
-  slow: false, error: false, confirm: null, nickShown: false, tab: 'games', open: {},
+  slow: false, error: false, confirm: null, nickShown: false, tab: 'games', open: {}, here: null, formPlace: { lat: null, lng: null },
   formPods: new Set(), mode: 'fixed', editing: null,
   request: null, authMode: 'signin', authBusy: false, authError: '', authInfo: '', ciDraft: null
 };
@@ -342,7 +342,7 @@ function gcalUrl(n) {
   return 'https://calendar.google.com/calendar/render?action=TEMPLATE'
     + '&text=' + encodeURIComponent(n.title)
     + '&dates=' + t.s + '/' + t.e
-    + '&location=' + encodeURIComponent(n.place || '')
+    + '&location=' + encodeURIComponent(fullPlace(n))
     + '&details=' + encodeURIComponent(calDescription(n))
     + (n.virtual && seriesById(n.series) ? '&recur=' + encodeURIComponent(rrule(seriesById(n.series))) : '');
 }
@@ -354,7 +354,7 @@ function icsText(n) {
     'UID:' + (n.virtual ? n.series : n.id) + '@pod-planner', 'DTSTAMP:' + stamp,
     t.allDay ? 'DTSTART;VALUE=DATE:' + t.s : 'DTSTART:' + t.s,
     t.allDay ? 'DTEND;VALUE=DATE:' + t.e : 'DTEND:' + t.e,
-    'SUMMARY:' + icsEscape(n.title), 'LOCATION:' + icsEscape(n.place || '')].concat(
+    'SUMMARY:' + icsEscape(n.title), 'LOCATION:' + icsEscape(fullPlace(n))].concat(
     n.virtual && seriesById(n.series) ? [rrule(seriesById(n.series))] : [], [
     'DESCRIPTION:' + icsEscape(calDescription(n)), 'END:VEVENT', 'END:VCALENDAR']).join('\r\n') + '\r\n';
 }
@@ -363,9 +363,73 @@ function downloadIcs(n) {
     .catch(function () { toast('Could not save the calendar file here. Use the Google Calendar link.'); });
 }
 
+/* ---------- places: address lookup and rough distances ----------
+   Addresses and areas are turned into map coordinates with OpenStreetMap's free search, once, when saved.
+   Distances are straight-line miles; tapping an address opens directions in the phone's map app. */
+var GEO_URL = 'https://nominatim.openstreetmap.org/search';
+function roundTo(x, d) { var m = Math.pow(10, d); return Math.round(x * m) / m; }
+function geocode(q) {
+  q = String(q || '').trim();
+  if (!q || typeof fetch !== 'function') return Promise.resolve(null);
+  var zip = /^\d{5}(-\d{4})?$/.test(q);
+  var url = GEO_URL + '?format=jsonv2&limit=1&' + (zip ? 'countrycodes=us&postalcode=' + encodeURIComponent(q.slice(0, 5)) : 'q=' + encodeURIComponent(q));
+  var ctl = typeof AbortController === 'function' ? new AbortController() : null;
+  var timer = setTimeout(function () { if (ctl) ctl.abort(); }, 6000);
+  return fetch(url, ctl ? { signal: ctl.signal } : {})
+    .then(function (r) { return r.ok ? r.json() : []; })
+    .then(function (a) {
+      clearTimeout(timer);
+      var lat = a && a[0] ? Number(a[0].lat) : NaN, lng = a && a[0] ? Number(a[0].lon) : NaN;
+      return isFinite(lat) && isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 ? { lat: lat, lng: lng } : null;
+    })
+    .catch(function () { clearTimeout(timer); return null; });
+}
+// Coordinates for the address in the form: reused if the address didn't change, looked up otherwise.
+function resolvePlace(address, old) {
+  if (!address) return Promise.resolve({ lat: null, lng: null });
+  if (old && old.address === address && typeof old.lat === 'number') return Promise.resolve({ lat: old.lat, lng: old.lng });
+  return geocode(address).then(function (g) { return g ? { lat: roundTo(g.lat, 4), lng: roundTo(g.lng, 4) } : { lat: null, lng: null }; });
+}
+function myOrigin() {
+  if (S.here) return S.here;
+  var m = me();
+  return m && typeof m.alat === 'number' && typeof m.alng === 'number' ? { lat: m.alat, lng: m.alng } : null;
+}
+function milesBetween(a, b) {
+  var R = 3958.8, rad = Math.PI / 180;
+  var dLat = (b.lat - a.lat) * rad, dLng = (b.lng - a.lng) * rad;
+  var x = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(x)));
+}
+function distanceText(item) {
+  var o = myOrigin();
+  if (!o || typeof item.lat !== 'number' || typeof item.lng !== 'number') return '';
+  var mi = milesBetween(o, { lat: item.lat, lng: item.lng });
+  return mi < 1 ? 'Under 1 mi' : mi < 10 ? (Math.round(mi * 10) / 10) + ' mi' : Math.round(mi) + ' mi';
+}
+function isApple() { return /iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent || '') && 'ontouchend' in document; }
+function mapsUrl(address) {
+  return isApple() ? 'https://maps.apple.com/?daddr=' + encodeURIComponent(address)
+    : 'https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(address);
+}
+function fullPlace(n) { return [n.place, n.address].filter(Boolean).join(', '); }
+function useHere() {
+  if (!navigator.geolocation) { toast("This browser can't share your location."); return; }
+  $('hereNote').textContent = 'Finding you…';
+  navigator.geolocation.getCurrentPosition(function (pos) {
+    S.here = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+    $('hereNote').textContent = 'Using where you are now for this visit. Not saved.';
+    renderNights(); renderPolls();
+  }, function () {
+    $('hereNote').textContent = '';
+    toast("Couldn't get your location. Check that location is allowed for this site.");
+  }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 600000 });
+}
+
 /* ---------- board actions ---------- */
 function fillNick() {
   $('nick').value = (me() && me().nick) || S.profileName || '';
+  $('area').value = (me() && me().area) || '';
   S.ciDraft = validCi(me() && me().ci);
   renderCiPick();
   renderDiscordProfile();
@@ -565,6 +629,7 @@ function lockIn(p, o) {
   if (!armConfirm('l:' + p.id + o.id, renderPolls)) return;
   var doc = {
     title: p.title, date: o.date, time: o.time || '', place: p.place || '', host: p.host || '', format: p.format,
+    address: p.address || '', lat: typeof p.lat === 'number' ? p.lat : null, lng: typeof p.lng === 'number' ? p.lng : null,
     min: p.min || 4, podIds: p.podIds || [], note: p.note || '', fromPoll: p.id, fromOpt: o.id, by: S.uid, at: Date.now()
   };
   S.db.collection('nights').add(doc).then(function (ref) {
@@ -1162,7 +1227,10 @@ function pollCard(p, pm) {
   });
   var meta = [];
   if (p.place) meta.push(p.place);
+  if (p.address) meta.push(h('a', { class: 'addr', href: mapsUrl(p.address), target: '_blank', rel: 'noopener', title: 'Directions' }, p.address));
   if (p.host) meta.push('Host: ' + p.host);
+  var pd = distanceText(p);
+  if (pd) meta.push(pd + ' away');
   var delArmed = S.confirm === 'd:' + p.id;
   return h('article', { class: 'poll card ' + fr.frame },
     h('div', { class: 'card-in' },
@@ -1171,7 +1239,7 @@ function pollCard(p, pm) {
         h('span', { text: typeLine((p.format || 'Game') + ' Poll', p, pm) }),
         h('span', { class: 'pt', 'aria-label': (p.min || 4) + ' players needed', text: '?/' + (p.min || 4) })),
       h('div', { class: 'textbox' },
-        meta.length ? h('div', { class: 'meta' }, meta.map(function (m) { return h('span', { text: m }); })) : null,
+        meta.length ? h('div', { class: 'meta' }, meta.map(function (m) { return typeof m === 'string' ? h('span', { text: m }) : m; })) : null,
         p.note ? h('p', { class: 'flavor', text: p.note }) : null,
         h('div', { class: 'opts' }, opts),
         t.wait.length ? h('p', { class: 'hint', text: 'Waiting on: ' + t.wait.join(', ') }) : null,
@@ -1237,7 +1305,9 @@ function nightCard(n, pm, g) {
   }
   var meta = [];
   if (n.place) meta.push(n.place);
+  if (n.address) meta.push(h('a', { class: 'addr', href: mapsUrl(n.address), target: '_blank', rel: 'noopener', title: 'Directions' }, n.address));
   if (n.host) meta.push('Host: ' + n.host);
+  var dist = distanceText(n);
   var nightPods = (n.podIds || []).map(function (id) { return pm[id]; }).filter(Boolean);
   if (nightPods.length) meta.push(nightPods.some(function (p) { return p.openSeats === false; }) ? 'Pod only' : 'Open table');
   if (ser) meta.push(repeatLabel(ser)); else if (n.series) meta.push('Weekly');
@@ -1260,7 +1330,9 @@ function nightCard(n, pm, g) {
         h('span', { class: 'cost', text: d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) })),
       h('div', { class: fr.art },
         h('div', { class: 'artrow' },
-          n.time ? h('span', { class: 'timechip', text: fmtTime(n.time) }) : h('span'),
+          h('span', { class: 'chiprow' },
+            n.time ? h('span', { class: 'timechip', text: fmtTime(n.time) }) : null,
+            dist ? h('span', { class: 'distchip', title: 'Straight-line distance from your area', text: dist }) : null),
           h('span', { class: 'pill ' + st.cls, text: st.text })),
         seats),
       h('div', { class: 'typeline' },
@@ -1268,7 +1340,7 @@ function nightCard(n, pm, g) {
         h('span', { class: 'pt', 'aria-label': c.yes.length + ' of ' + min + ' seats filled', title: 'Seats filled / needed', text: c.yes.length + '/' + min })),
       h('div', { class: 'textbox' },
         datesRow,
-        meta.length ? h('div', { class: 'meta' }, meta.map(function (m) { return h('span', { text: m }); })) : null,
+        meta.length ? h('div', { class: 'meta' }, meta.map(function (m) { return typeof m === 'string' ? h('span', { text: m }) : m; })) : null,
         n.note ? h('p', { class: 'flavor', text: n.note }) : null,
         roster.children.length ? roster : null,
         row, bring,
@@ -1368,7 +1440,7 @@ function seriesDates(s, from, to, max) {
 }
 function occurrence(s, ymd) {
   return { id: s.id + '_' + ymd.replace(/-/g, ''), date: ymd, time: s.time || '', title: s.title, place: s.place || '', host: s.host || '',
-    format: s.format, min: s.min || 4, podIds: s.podIds || [], note: s.note || '', by: s.by, at: s.at, series: s.id, virtual: true };
+    address: s.address || '', lat: s.lat, lng: s.lng, format: s.format, min: s.min || 4, podIds: s.podIds || [], note: s.note || '', by: s.by, at: s.at, series: s.id, virtual: true };
 }
 function repeatLabel(s) {
   var day = parseDate(s.date).toLocaleDateString(undefined, { weekday: 'long' });
@@ -1439,7 +1511,7 @@ function visibleFor(item, pm) {
   } else if (f.pod !== 'all' && ids.indexOf(f.pod) < 0) return false;
   if (f.format && item.format !== f.format) return false;
   if (f.q) {
-    var hay = [item.title, item.place, item.host, item.note, item.format].join(' ').toLowerCase();
+    var hay = [item.title, item.place, item.address, item.host, item.note, item.format].join(' ').toLowerCase();
     if (hay.indexOf(f.q.toLowerCase()) < 0) return false;
   }
   return true;
@@ -1513,7 +1585,7 @@ function startEdit(n) {
   S.editing = n.id;
   $('nTitle').value = n.title || ''; $('nDate').value = n.date; $('nTime').value = n.time || '';
   $('nFormat').value = n.format || 'Commander'; $('nMin').value = n.min || 4;
-  $('nPlace').value = n.place || ''; $('nHost').value = n.host || ''; $('nNote').value = n.note || '';
+  $('nPlace').value = n.place || ''; $('nHost').value = n.host || ''; $('nNote').value = n.note || ''; $('nAddress').value = n.address || '';
   S.formPods = new Set(n.podIds || []); renderFormPods();
   $('formH').textContent = 'Edit night';
   $('modeSeg').hidden = true; $('repeatField').hidden = true;
@@ -1525,7 +1597,7 @@ function startEditSeries(s) {
   S.editingSeries = s.id;
   $('nTitle').value = s.title || ''; $('nDate').value = s.date; $('nTime').value = s.time || '';
   $('nFormat').value = s.format || 'Commander'; $('nMin').value = s.min || 4;
-  $('nPlace').value = s.place || ''; $('nHost').value = s.host || ''; $('nNote').value = s.note || '';
+  $('nPlace').value = s.place || ''; $('nHost').value = s.host || ''; $('nNote').value = s.note || ''; $('nAddress').value = s.address || '';
   $('nRepeat').value = s.freq; $('optNone').disabled = true;
   $('nEnds').value = s.count ? 'count' : s.until ? 'until' : 'never';
   if (s.count) $('nCount').value = s.count;
@@ -1569,7 +1641,7 @@ function submitSeriesEdit() {
   if (!date) { toast('Pick a date first.'); return; }
   var s = seriesFromForm(date, $('nTime').value || ''); if (!s) return;
   var full = Object.assign(s, { skips: old.skips || [], by: old.by, at: old.at || Date.now() });
-  var moved = ['date', 'time', 'place', 'host', 'freq', 'count', 'until'].some(function (k) { return (full[k] || '') !== (old[k] || ''); });
+  var moved = ['date', 'time', 'place', 'host', 'address', 'freq', 'count', 'until'].some(function (k) { return (full[k] || '') !== (old[k] || ''); });
   S.db.doc('series/' + old.id).set(full).then(function () {
     resetNightForm(); closeSheet();
     toast('Recurring game updated');
@@ -1587,6 +1659,7 @@ function formCommon() {
     format: format,
     min: Math.min(12, Math.max(2, parseInt($('nMin').value, 10) || 4)),
     place: $('nPlace').value.trim(), host: $('nHost').value.trim(),
+    address: $('nAddress').value.trim().slice(0, 120), lat: S.formPlace.lat, lng: S.formPlace.lng,
     podIds: Array.from(S.formPods), note: $('nNote').value.trim()
   };
 }
@@ -1736,19 +1809,40 @@ function wireForms() {
     e.preventDefault();
     var v = $('nick').value.trim().slice(0, 24); if (!v || !canWrite()) return;
     var ci = validCi(S.ciDraft);
-    saveMe(function (c) { c.nick = v; if (ci) c.ci = ci; else delete c.ci; }).then(function () { toast('Saved'); });
+    var area = $('area').value.trim().slice(0, 60), m = me() || {};
+    var same = area === (m.area || '');
+    var lookup = !area ? Promise.resolve(null) : same && typeof m.alat === 'number' ? Promise.resolve({ lat: m.alat, lng: m.alng }) : geocode(area);
+    lookup.then(function (g) {
+      saveMe(function (c) {
+        c.nick = v; if (ci) c.ci = ci; else delete c.ci;
+        if (area && g) { c.area = area; c.alat = roundTo(g.lat, 2); c.alng = roundTo(g.lng, 2); }
+        else if (area && same) { c.area = area; }
+        else { delete c.area; delete c.alat; delete c.alng; if (area) c.area = area; }
+      }).then(function () { toast(area && !g ? "Saved. Couldn't find that area on the map, so distances are off." : 'Saved'); });
+    });
     closeNick();
     $('callBtn').focus();
   });
   $('podForm').addEventListener('submit', function (e) { e.preventDefault(); submitPod(); });
   $('nightForm').addEventListener('submit', function (e) {
     e.preventDefault();
-    if (!canWrite()) return;
-    if (S.editingSeries) submitSeriesEdit();
-    else if (S.editing) submitEdit();
-    else if (S.mode === 'poll') submitPoll();
-    else submitNights();
+    if (!canWrite() || S.placeBusy) return;
+    var old = S.editingSeries ? seriesById(S.editingSeries) : S.editing ? S.nights.filter(function (x) { return x.id === S.editing; })[0] : null;
+    var btn = $('nightSubmit'), label = btn.textContent;
+    var address = $('nAddress').value.trim().slice(0, 120);
+    S.placeBusy = true;
+    if (address && !(old && old.address === address)) { btn.disabled = true; btn.textContent = 'Finding the address…'; }
+    resolvePlace(address, old).then(function (pl) {
+      S.placeBusy = false; btn.disabled = false; btn.textContent = label;
+      S.formPlace = pl;
+      if (address && pl.lat == null) toast("Couldn't find that address on the map, so no distance. Directions still work.");
+      if (S.editingSeries) submitSeriesEdit();
+      else if (S.editing) submitEdit();
+      else if (S.mode === 'poll') submitPoll();
+      else submitNights();
+    });
   });
+  $('hereBtn').addEventListener('click', useHere);
 }
 
 /* ---------- boot ---------- */

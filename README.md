@@ -11,6 +11,7 @@ We play in several small groups, or "pods": a Tuesday Commander crew, people who
 - **Call a night once.** Pick the date and the pods, and everyone in those pods sees it.
 - **Answer in one tap.** I'm in, Maybe, or Can't. Each game shows its seats filling up and says **Game on** when there are enough players.
 - **Not sure of the date?** Post a quick poll with a few dates and lock in the winner.
+- **Where and how far:** add an address and people can tap it for directions. Set your area (a city or ZIP, never your street) and each game shows roughly how far away it is. Addresses stay in the app, not Discord.
 - **Recurring games**, like every other Thursday or the first Friday of the month, show as one card with their upcoming dates.
 - **Discord** gets the announcements and a reminder the day before, so nobody has to remember to check.
 
