@@ -1,18 +1,20 @@
-  --bg:#ECEFED; --surface:#F9FAF9; --surface-2:#E2E8E4; --ink:#101916; --muted:#56655F; --line:#CCD4D0;
+  /* Stone, with a hint of the viewer's own colors (the accent follows their color identity) */
+  --bg:color-mix(in srgb,var(--accent) 9%,#EFEEEC); --surface:#FBFBFA; --surface-2:color-mix(in srgb,var(--accent) 7%,#E9E7E4);
+  --ink:#1A1917; --muted:#5F5B56; --line:#D5D2CD;
   --hi:#FFFFFF;
   --good:#17703F; --good-soft:#D2EBDC;
   --warn:#8F5A00; --warn-soft:#F3E4C4; --on-warn:#FFFFFF;
   --bad:#A63636;
-  --m-w:#D9C67A; --m-u:#3B7DBF; --m-b:#6A5B72; --m-r:#D1523D; --m-g:#3C9A59; --m-c:#A9B3AE;
+  --m-w:#D9C67A; --m-u:#3B7DBF; --m-b:#3A383E; --m-r:#D1523D; --m-g:#3C9A59; --m-c:#B3AFA9;
   /* card frames: two stops per color */
-  --fr-w:#EDE3BC; --fr-w2:#CDBB7C; --fr-u:#5A97D4; --fr-u2:#2C66A6; --fr-b:#62566F; --fr-b2:#362C40;
+  --fr-w:#EDE3BC; --fr-w2:#CDBB7C; --fr-u:#5A97D4; --fr-u2:#2C66A6; --fr-b:#5E5B63; --fr-b2:#26252A;
   --fr-r:#DD6650; --fr-r2:#A93A27; --fr-g:#55A56B; --fr-g2:#2C7643; --fr-gold:#E6C770; --fr-gold2:#B48A2C;
-  --fr-c:#C3CBC7; --fr-c2:#8D9893;
+  --fr-c:#CBC7C1; --fr-c2:#97928B;
   /* accent per color identity: fill, text on the fill, and accent used as text */
-  --acc-c:#17624E; --acc-c-ink:#F4FBF8; --acc-c-text:#17624E;
+  --acc-c:#26252A; --acc-c-ink:#F7F6F4; --acc-c-text:#26252A;
   --acc-w:#E3CF7E; --acc-w-ink:#2B2410; --acc-w-text:#7A6418;
   --acc-u:#2F6DB0; --acc-u-ink:#FFFFFF; --acc-u-text:#2A62A0;
-  --acc-b:#3F3448; --acc-b-ink:#F3EEF6; --acc-b-text:#4F4458;
+  --acc-b:#2E2D32; --acc-b-ink:#F4F3F5; --acc-b-text:#3A383E;
   --acc-r:#BF402D; --acc-r-ink:#FFFFFF; --acc-r-text:#AE3A28;
   --acc-g:#2E7D47; --acc-g-ink:#FFFFFF; --acc-g-text:#2A7442;
   --font-display:'Bricolage Grotesque','Trebuchet MS',system-ui,sans-serif;

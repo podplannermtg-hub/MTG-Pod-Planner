@@ -21,8 +21,8 @@ const baseSeed = () => ({
 const HOOK = 'https://discord.com/api/webhooks/123456/abcDEF_-9';
 const withDiscord = (s) => { s.config.discord = { webhook: HOOK, ping: '' }; return s; };
 
-async function open(browser, auth, seed, extra) {
-  const ctx = await browser.newContext({ viewport: { width: 400, height: 900 } });
+async function open(browser, auth, seed, extra, viewport) {
+  const ctx = await browser.newContext({ viewport: viewport || { width: 400, height: 900 } });
   const page = await ctx.newPage();
   const errors = [], posts = [];
   page.on('pageerror', (e) => errors.push(String(e)));
@@ -33,10 +33,15 @@ async function open(browser, auth, seed, extra) {
     if (u.startsWith('file://')) return route.continue();
     return route.abort();
   });
-  await page.addInitScript(([s, a, x]) => { window.__seed = s; window.__auth = a; Object.assign(window, x || {}); }, [seed, auth, extra]);
+  await page.addInitScript(([s, a, x]) => {
+    window.__seed = s; window.__auth = a; Object.assign(window, x || {});
+    // Most flows below read the whole card, so start cards open unless a test asks for the default.
+    try { if (!window.__defaultCards) localStorage.setItem('pp.cards', 'open'); else localStorage.removeItem('pp.cards'); } catch (e) {}
+  }, [seed, auth, extra]);
   await page.goto('file://' + path.resolve(OUT));
   return { page, errors, posts, ctx };
 }
+const tab = (page, t) => page.click('#tabs button[data-tab=' + t + ']');
 const store = (page) => page.evaluate(() => JSON.parse(JSON.stringify(window.__store)));
 const calls = (page) => page.evaluate(() => window.__calls);
 
@@ -109,8 +114,12 @@ const calls = (page) => page.evaluate(() => window.__calls);
   /* ===== organizer ===== */
   {
     const { page, errors } = await open(browser, { state: 'ok', uid: 'admin1', email: 'boss@example.com', isAdmin: true }, baseSeed());
-    await page.waitForSelector('article.night');
+    await page.waitForSelector('article.night', { state: 'attached' });
+    check('new organizer starts on the Me tab', await page.locator('#nick').isVisible() && (await page.locator('#welcome').isVisible()));
     await page.fill('#nick', 'Boss'); await page.click('#nickForm button[type=submit]');
+    check('saving the profile goes to Games', await page.locator('#view-games').isVisible() && !(await page.locator('#view-me').isVisible()));
+    check('organizers get an Organizer tab', await page.locator('#tabOrg').isVisible());
+    await tab(page, 'organizer');
     await page.waitForSelector('#membersSec:not([hidden]) #requests .mrow');
     check('organizer sees Members with the pending request', (await page.locator('#requests').innerText()).includes('zed@example.com'));
     check('organizer can cancel nights they did not create', (await page.locator('article.night', { hasText: 'Existing Night' }).locator('button.link', { hasText: 'Cancel night' }).count()) === 1);
@@ -153,13 +162,17 @@ const calls = (page) => page.evaluate(() => window.__calls);
 
     // block someone
     const prow = () => page.locator('#peopleList .mrow', { hasText: 'Dana' });
+    await tab(page, 'games');
     check('waiting list shows Dana before block', (await page.locator('article.night', { hasText: 'Existing Night' }).innerText()).includes('Dana'));
+    await tab(page, 'organizer');
     await prow().locator('button', { hasText: 'Block' }).click();
     await prow().locator('button', { hasText: 'Tap again to block' }).click();
     await page.waitForTimeout(100);
     s = await store(page);
     check('block saved by account id', s.config.settings.blocked.includes('other1'));
+    await tab(page, 'games');
     check('blocked person hidden from the board', !(await page.locator('article.night', { hasText: 'Existing Night' }).innerText()).includes('Dana'));
+    await tab(page, 'organizer');
     check('blocked person marked in tools', (await prow().innerText()).includes('Blocked'));
     await prow().locator('button', { hasText: 'Unblock' }).click();
     await page.waitForTimeout(100);
@@ -186,7 +199,7 @@ const calls = (page) => page.evaluate(() => window.__calls);
   /* ===== regular member: full board flows ===== */
   {
     const { page, errors, posts } = await open(browser, { state: 'ok', uid: 'me1', email: 'me@example.com', isAdmin: false, profileName: 'Rob Google' }, withDiscord(baseSeed()));
-    await page.waitForSelector('article.night');
+    await page.waitForSelector('article.night', { state: 'attached' });
     const card = (t) => page.locator('article.night', { hasText: t });
     check('member: Members section hidden', !(await page.locator('#membersSec').isVisible()));
     check('member: name prefilled from Google', (await page.inputValue('#nick')) === 'Rob Google');
@@ -202,8 +215,13 @@ const calls = (page) => page.evaluate(() => window.__calls);
     check('sign out link shown', await page.locator('#signOutBtn').isVisible());
     check('night card framed in its pod color', (await card('Existing Night').getAttribute('class')).includes('f-G'));
     check('type line names format and pod', (await card('Existing Night').locator('.typeline').innerText()).includes('Commander Night — Tuesday Commander'));
+    await tab(page, 'pods');
+    check('pods tab shows pods', await page.locator('#view-pods').isVisible() && !(await page.locator('#view-games').isVisible()));
     await page.click('.chip:has-text("Tuesday Commander")');
+    await tab(page, 'games');
+    check('needs-answer section and badge', (await page.locator('.grouphead').first().innerText()).toLowerCase() === 'needs your answer' && (await page.innerText('#badgeGames')) === '1');
     await card('Existing Night').getByRole('button', { name: "I'm in" }).click();
+    check('answering clears the badge', await page.locator('#badgeGames').isHidden());
     check('filling the last seat throws confetti', (await page.locator('#confetti').count()) === 1);
     check('P/T box shows seats', (await card('Existing Night').locator('.pt').innerText()) === '2/2');
     check('seat shows player initial', (await card('Existing Night').locator('.seat.yes').allInnerTexts()).sort().join() === 'R,S');
@@ -321,9 +339,10 @@ const calls = (page) => page.evaluate(() => window.__calls);
     seed.people.other1.pods = ['p1'];
     seed.links = { me1: { discordId: 'd1', name: 'robplays' } };
     const { page, errors, posts } = await open(browser, { state: 'ok', uid: 'me1', email: 'me@example.com', isAdmin: false }, seed, { __helper: true });
-    await page.waitForSelector('article.night');
+    await page.waitForSelector('article.night', { state: 'attached' });
     const helperCalls = () => page.evaluate(() => window.__helperCalls || []);
     // create an invite-only pod that keeps its nights in-house
+    await tab(page, 'pods');
     await page.click('#addPodBtn');
     await page.fill('#podName', 'cEDH Sweats');
     await page.click('#podJoinSeg button[data-join=invite]');
@@ -339,6 +358,8 @@ const calls = (page) => page.evaluate(() => window.__calls);
     // edit it
     await page.locator('.chipwrap', { hasText: 'cEDH Sweats' }).locator('button.podedit').click();
     check('edit form is prefilled', (await page.inputValue('#podName')) === 'cEDH Sweats' && (await page.getAttribute('#podJoinSeg button[data-join=invite]', 'aria-pressed')) === 'true' && !(await page.isChecked('#podOpenSeats')));
+    check('banner picker offers Auto plus seven patterns', (await page.locator('#podBannerPick button').count()) === 8 && (await page.getAttribute('#podBannerPick button:first-child', 'aria-pressed')) === 'true');
+    await page.click('#podBannerPick button:has-text("Night")');
     await page.fill('#podName', 'cEDH Sweatshop'); await page.click('#podSubmit');
     await page.waitForSelector('.chip:has-text("cEDH Sweatshop")');
     // invite Dana
@@ -351,6 +372,7 @@ const calls = (page) => page.evaluate(() => window.__calls);
     s = await store(page);
     check('invite stored with a predictable id', s.invites && s.invites[podId + '_other1'] && s.invites[podId + '_other1'].by === 'me1');
     // night for the open pod announces through the helper, not the webhook
+    await tab(page, 'games');
     await page.click('#callBtn'); await page.fill('#nTitle', 'Helper Night');
     await page.check('#formPods label:has-text("Tuesday Commander") input');
     await page.click('#nightSubmit');
@@ -359,6 +381,9 @@ const calls = (page) => page.evaluate(() => window.__calls);
     check('announcement goes through the helper', calls1.some((c) => c[0] === '/announce' && c[1].kind === 'night' && c[1].ids.length === 1) && posts.length === 0);
     check('copy message still offered', (await page.innerText('#announceH')).includes('sent to Discord'));
     await page.click('#closeAnnounce');
+    s = await store(page);
+    check('chosen banner saved', s.pods[podId].banner === 'B');
+    check('banner follows pod color by default', (await page.locator('article.night', { hasText: 'Helper Night' }).locator('.art').getAttribute('class')).includes('pat-G'));
     check('night shows it is an open table', (await page.locator('article.night', { hasText: 'Helper Night' }).locator('.meta').innerText()).includes('Open table'));
     // profile: Discord connected, Open Seats opt-in
     await page.click('.me-btn');
@@ -378,7 +403,9 @@ const calls = (page) => page.evaluate(() => window.__calls);
     seed.pods.p8 = { name: 'Secret Club', mana: 'U', by: 'me1', join: 'invite' };
     seed.invites = { p9_other1: { podId: 'p9', uid: 'other1', by: 'old1', at: 1 } };
     const { page, errors } = await open(browser, { state: 'ok', uid: 'other1', email: 'dana@example.com', isAdmin: false }, seed, { __helper: true });
-    await page.waitForSelector('article.night');
+    await page.waitForSelector('article.night', { state: 'attached' });
+    check('pods tab badge counts the invite', (await page.innerText('#badgePods')) === '1');
+    await tab(page, 'pods');
     check('invitation banner shown', (await page.innerText('#invites')).includes('Sam invited you to cEDH Sweatshop'));
     await page.click('.chip:has-text("Secret Club")');
     check('cannot join an invite-only pod without an invite', (await page.innerText('#toast')).includes('invite only') && !((await store(page)).people.other1.pods || []).includes('p8'));
@@ -400,7 +427,7 @@ const calls = (page) => page.evaluate(() => window.__calls);
     const seed = withDiscord(baseSeed());
     seed.config.settings = { open: true, blocked: [] };
     const { page, errors, posts } = await open(browser, { state: 'ok', uid: 'g1', email: 'guest@example.com', isAdmin: false }, seed, { __denyDocs: ['config/discord'] });
-    await page.waitForSelector('article.night');
+    await page.waitForSelector('article.night', { state: 'attached' });
     await page.fill('#nick', 'Guest'); await page.click('#nickForm button[type=submit]');
     await page.click('#callBtn'); await page.fill('#nTitle', 'Guest Night'); await page.click('#nightSubmit');
     await page.waitForSelector('#announce:not([hidden])');
@@ -408,6 +435,85 @@ const calls = (page) => page.evaluate(() => window.__calls);
     check('guest: copy message offered instead', (await page.inputValue('#announceText')).startsWith('New game night: Guest Night'));
     check('guest: no organizer tools', !(await page.locator('#membersSec').isVisible()));
     check('guest: no errors', errors.length === 0, errors);
+    await page.context().close();
+  }
+
+  /* ===== phone layout: tabs, compact cards, the sheet ===== */
+  {
+    const seed = baseSeed();
+    seed.people.me1 = { nick: 'Rob', pods: ['p1'], res: {} };
+    seed.polls = { q1: { title: 'Pick a Date', format: 'Commander', min: 4, podIds: [], by: 'old1', at: 1, options: [{ id: 'a', date: plus(4), time: '19:00' }, { id: 'b', date: plus(5), time: '19:00' }] } };
+    seed.nights.n2 = { title: 'Far Night', date: plus(30), time: '18:00', format: 'Draft', min: 4, podIds: ['p1'], by: 'x', at: 2 };
+    const { page, errors } = await open(browser, { state: 'ok', uid: 'me1', email: 'me@example.com', isAdmin: false }, seed, { __defaultCards: true }, { width: 390, height: 844 });
+    await page.waitForSelector('article.night');
+    const bar = await page.locator('#tabs').boundingBox();
+    check('phone: tab bar sits at the bottom', bar && Math.abs(bar.y + bar.height - 844) < 2, bar);
+    check('phone: no Organizer tab for members', await page.locator('#tabOrg').isHidden());
+    check('phone: badge counts the night and the poll', (await page.innerText('#badgeGames')) === '2');
+    check('phone: poll says it needs your vote', (await page.innerText('article.poll .cost')) === 'Needs your vote');
+    check('phone: a game 30 days out is not nagged about', (await page.locator('.grouphead').allInnerTexts()).map((x) => x.toLowerCase()).join() === 'needs your answer,later');
+    const c1 = page.locator('article.night', { hasText: 'Existing Night' });
+    check('phone: cards start compact', (await c1.getAttribute('class')).includes('compact') && await c1.locator('.roster').isHidden() && await c1.locator('.rsvp').isVisible());
+    await c1.locator('button.more').click();
+    check('phone: Details opens one card', await c1.locator('.roster').isVisible() && (await c1.locator('button.more').innerText()) === 'Less'
+      && (await page.locator('article.night', { hasText: 'Far Night' }).getAttribute('class')).includes('compact'));
+    await page.screenshot({ path: path.join(SHOTS, 'shot-phone.png'), fullPage: false });
+    await page.click('#callBtn');
+    check('phone: Call a night opens a sheet', await page.locator('#nightForm').isVisible() && await page.locator('#sheetBackdrop').isVisible());
+    const sb = await page.locator('#nightSubmit').boundingBox();
+    check('phone: Post button visible without scrolling', sb && sb.y + sb.height <= 844 && sb.y > 0, sb);
+    await page.screenshot({ path: path.join(SHOTS, 'shot-sheet.png'), fullPage: false });
+    await page.keyboard.press('Escape');
+    check('phone: Escape closes the sheet', await page.locator('#nightForm').isHidden() && await page.locator('#sheetBackdrop').isHidden());
+    await page.click('#callBtn'); await page.click('#sheetBackdrop', { position: { x: 10, y: 10 } });
+    check('phone: tapping outside closes it', await page.locator('#nightForm').isHidden());
+    await tab(page, 'me');
+    check('phone: Me tab in the address', (await page.evaluate(() => location.hash)) === '#me' && await page.locator('#nick').isVisible() && (await page.inputValue('#nick')) === 'Rob');
+    await page.click('#cardsSeg button[data-cards=open]');
+    check('phone: card setting saved on this device', (await page.evaluate(() => localStorage.getItem('pp.cards'))) === 'open');
+    await page.goBack();
+    check('phone: back button returns to Games', await page.locator('#view-games').isVisible());
+    check('phone: cards now start open', !(await page.locator('article.night', { hasText: 'Far Night' }).getAttribute('class')).includes('compact'));
+    await page.reload(); await page.waitForSelector('article.night');
+    check('phone: reload keeps the tab', await page.locator('#view-games').isVisible());
+    await page.click('.me-btn');
+    check('phone: name chip opens Me', await page.locator('#view-me').isVisible());
+    check('phone layout: no errors', errors.length === 0, errors);
+    await page.context().close();
+  }
+  {
+    // a new person who tries to call a night is asked for their name first
+    const { page } = await open(browser, { state: 'ok', uid: 'n1', email: 'new@example.com', isAdmin: false }, baseSeed());
+    await page.waitForSelector('#nick');
+    await tab(page, 'games');
+    await page.click('#callBtn');
+    check('no name yet: Call a night goes to Me', await page.locator('#view-me').isVisible() && await page.locator('#nightForm').isHidden());
+    check('no name yet: no Cancel button to skip it', await page.locator('#nickCancel').isHidden());
+    await page.context().close();
+  }
+
+  /* ===== wide screen: tabs on top, open cards, two per row, centered dialog ===== */
+  {
+    const seed = baseSeed();
+    seed.people.me1 = { nick: 'Rob', pods: ['p1'], res: { n1: 'yes', n2: 'no' } };
+    seed.nights.n2 = { title: 'Second Night', date: plus(4), time: '18:00', format: 'Draft', min: 4, podIds: ['p1'], by: 'x', at: 2 };
+    const { page, errors } = await open(browser, { state: 'ok', uid: 'me1', email: 'me@example.com', isAdmin: true }, seed, { __defaultCards: true }, { width: 1280, height: 900 });
+    await page.waitForSelector('article.night');
+    const bar = await page.locator('#tabs').boundingBox();
+    check('desktop: tabs along the top', bar && bar.y < 300 && bar.height < 70, bar);
+    check('desktop: organizer tab shown', await page.locator('#tabOrg').isVisible());
+    check('desktop: cards start open', !(await page.locator('article.night').first().getAttribute('class')).includes('compact'));
+    const b1 = await page.locator('article.night').nth(0).boundingBox(), b2 = await page.locator('article.night').nth(1).boundingBox();
+    check('desktop: two games per row', Math.abs(b1.y - b2.y) < 2 && b2.x > b1.x + 200, [b1, b2]);
+    await page.screenshot({ path: path.join(SHOTS, 'shot-desktop.png'), fullPage: false });
+    await page.click('#callBtn');
+    const d = await page.locator('#nightForm').boundingBox();
+    check('desktop: Call a night is a centered dialog', d && Math.abs(d.x + d.width / 2 - 640) < 3 && d.width <= 640 && d.y > 10, d);
+    await page.screenshot({ path: path.join(SHOTS, 'shot-dialog.png'), fullPage: false });
+    await page.click('#sheetClose');
+    await tab(page, 'organizer');
+    check('desktop: organizer tools on their own tab', await page.locator('#membersSec').isVisible() && await page.locator('#view-games').isHidden());
+    check('desktop: no errors', errors.length === 0, errors);
     await page.context().close();
   }
 

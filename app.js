@@ -152,11 +152,11 @@ var S = {
   db: null, uid: null, state: 'init', isAdmin: false, canWriteFlag: null, forcedRO: false, profileName: '', email: '',
   pods: [], nights: [], polls: [], people: {}, members: { emails: [], admins: [] }, requests: [],
   settings: { open: false, blocked: [] }, discord: { webhook: '', ping: '' },
-  invites: [], link: null, podEdit: null, podJoin: 'open',
+  invites: [], link: null, podEdit: null, podJoin: 'open', podBanner: '',
   series: [], sel: {}, f: { q: '', pod: 'all', format: '' }, editingSeries: null,
   loaded: { pods: false, nights: false, polls: false, people: false, series: false },
   confirmed: { pods: false, nights: false, polls: false, people: false, series: false },
-  slow: false, error: false, confirm: null, nickShown: false,
+  slow: false, error: false, confirm: null, nickShown: false, tab: 'games', open: {},
   formPods: new Set(), mode: 'fixed', editing: null,
   request: null, authMode: 'signin', authBusy: false, authError: '', authInfo: '', ciDraft: null
 };
@@ -364,23 +364,142 @@ function downloadIcs(n) {
 }
 
 /* ---------- board actions ---------- */
-function openNick(focus) {
-  var f = $('nickForm'); f.hidden = false;
-  var i = $('nick');
-  if (!i.value) i.value = (me() && me().nick) || S.profileName || '';
-  if (S.ciDraft == null) S.ciDraft = validCi(me() && me().ci);
+function fillNick() {
+  $('nick').value = (me() && me().nick) || S.profileName || '';
+  S.ciDraft = validCi(me() && me().ci);
   renderCiPick();
   renderDiscordProfile();
-  if (focus) i.focus();
 }
+function openNick(focus) {
+  setTab('me');
+  if (focus) $('nick').focus();
+}
+// Leave the profile without saving: put the form back and go to the games.
 function closeNick() {
-  $('nickForm').hidden = true;
   S.ciDraft = null;
   applyIdentity(me() && me().ci);
+  setTab('games');
 }
 function needNick() {
   if (me() && me().nick) return false;
+  toast('Add your name first');
   openNick(true); return true;
+}
+
+/* ---------- tabs ----------
+   Games, Pods, Me and (for organizers) Organizer. A bottom bar on phones, tabs along the top on wide screens.
+   The tab is in the address (#games, #pods, #me, #organizer), so the back button and links work. */
+var TABS = ['games', 'pods', 'me', 'organizer'];
+function tabAllowed(t) {
+  if (t === 'organizer') return !!(ACCOUNTS && S.isAdmin && S.state === 'ok');
+  if (t === 'me') return canWrite();
+  return TABS.indexOf(t) >= 0;
+}
+function setTab(t, fromHash) {
+  if (!tabAllowed(t)) t = 'games';
+  var was = S.tab;
+  if (was === 'me' && t !== 'me' && S.ciDraft != null) { S.ciDraft = null; applyIdentity(me() && me().ci); }
+  S.tab = t;
+  if (t === 'me' && was !== 'me') fillNick();
+  if (!fromHash && location.hash !== '#' + t) {
+    try { history.pushState(null, '', '#' + t); } catch (e) { location.hash = t; }
+  }
+  renderTabs();
+  if (was !== t && !fromHash) window.scrollTo(0, 0);
+}
+function tabFromHash() {
+  var t = (location.hash || '').slice(1);
+  return TABS.indexOf(t) >= 0 ? t : null;
+}
+function renderTabs() {
+  var on = !gated() && S.state === 'ok' && !!S.db;
+  $('tabs').hidden = !on;
+  document.body.classList.toggle('tabbed', on);
+  if (on && !tabAllowed(S.tab)) S.tab = 'games';
+  var t = on ? S.tab : 'games';
+  $('tabOrg').hidden = !tabAllowed('organizer');
+  document.querySelectorAll('#tabs button').forEach(function (b) {
+    if (b.dataset.tab === t) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+  });
+  $('view-games').hidden = t !== 'games';
+  $('view-pods').hidden = t !== 'pods';
+  $('view-me').hidden = t !== 'me';
+  $('membersSec').hidden = !(t === 'organizer' && tabAllowed('organizer'));
+  if (t === 'me' && !$('nick').value && document.activeElement !== $('nick') && me() && me().nick) fillNick();
+  $('welcome').hidden = !(t === 'me' && !(me() && me().nick));
+  $('nickCancel').hidden = !(me() && me().nick);
+  var need = needsCount();
+  badge('badgeGames', need, need === 1 ? '1 game needs your answer' : need + ' games need your answer');
+  var inv = myInvites().length;
+  badge('badgePods', inv, inv === 1 ? '1 pod invite' : inv + ' pod invites');
+}
+function badge(id, n, label) {
+  var b = $(id); b.hidden = !n; b.textContent = n > 9 ? '9+' : String(n || '');
+  if (n) b.setAttribute('aria-label', label); else b.removeAttribute('aria-label');
+}
+
+/* ---------- card details: compact on phones unless you choose otherwise ---------- */
+function cardsPref() {
+  try { var v = localStorage.getItem('pp.cards'); if (v === 'open' || v === 'compact') return v; } catch (e) {}
+  return '';
+}
+function cardsOpenByDefault() {
+  var v = cardsPref();
+  if (v) return v === 'open';
+  return !!(window.matchMedia && window.matchMedia('(min-width: 900px)').matches);
+}
+function setCardsPref(v) {
+  try { localStorage.setItem('pp.cards', v); } catch (e) {}
+  S.open = {};
+  renderCardsSeg(); renderNights();
+}
+function renderCardsSeg() {
+  var open = cardsOpenByDefault();
+  document.querySelectorAll('#cardsSeg button').forEach(function (b) { b.setAttribute('aria-pressed', String((b.dataset.cards === 'open') === open)); });
+}
+function isOpen(key) { return Object.prototype.hasOwnProperty.call(S.open, key) ? S.open[key] : cardsOpenByDefault(); }
+
+/* ---------- what still needs your answer ---------- */
+var NEED_DAYS = 14;
+function needsNight(n, pm) {
+  var m = me();
+  if (!m || !m.nick) return false;
+  if (n.date > addDaysYmd(todayStr(), NEED_DAYS)) return false;
+  return invited(m, n, pm) && !answerOf(m, n);
+}
+function needsPoll(p, pm) {
+  var m = me();
+  if (!m || !m.nick || !invited(m, p, pm)) return false;
+  return !(p.options || []).some(function (o) { return pollVoteOf(m, p.id, o.id); });
+}
+function needsCount() {
+  if (!canWrite() || !S.loaded.nights || !S.loaded.series) return 0;
+  var pm = podById();
+  return groupNights(upcomingNights()).filter(function (g) { return needsNight(g.items[0], pm); }).length
+    + S.polls.filter(function (p) { return needsPoll(p, pm); }).length;
+}
+function myInvites() {
+  if (!canWrite()) return [];
+  var pm = podById(), mine = myPods();
+  return S.invites.filter(function (x) { return x.uid === S.uid && pm[x.podId] && mine.indexOf(x.podId) < 0; });
+}
+
+/* ---------- the "Call a night" sheet ---------- */
+function openSheet() {
+  var f = $('nightForm');
+  S.sheetReturn = document.activeElement;
+  f.hidden = false; $('sheetBackdrop').hidden = false;
+  document.body.classList.add('sheet-open');
+  f.scrollTop = 0;
+  $('nTitle').focus();
+}
+function closeSheet() {
+  var f = $('nightForm');
+  if (f.hidden) return;
+  f.hidden = true; $('sheetBackdrop').hidden = true;
+  document.body.classList.remove('sheet-open');
+  var r = S.sheetReturn; S.sheetReturn = null;
+  if (r && r.focus && document.contains(r)) r.focus();
 }
 function derivedFromPoll(c, n) { return !!(n.fromPoll && n.fromOpt && c.pv && c.pv[n.fromPoll] && validVote(c.pv[n.fromPoll][n.fromOpt])); }
 function answer(n, k) {
@@ -502,8 +621,8 @@ function fillInviteSelects() {
 function renderInvites() {
   var box = $('invites'); box.replaceChildren();
   if (!canWrite()) { $('inviteBox').hidden = true; return; }
-  var pm = podById(), mine = myPods();
-  S.invites.filter(function (x) { return x.uid === S.uid && pm[x.podId] && mine.indexOf(x.podId) < 0; }).forEach(function (inv) {
+  var pm = podById();
+  myInvites().forEach(function (inv) {
     var p = pm[inv.podId], from = S.people[inv.by];
     box.append(h('div', { class: 'panel invite' },
       h('p', null, h('b', { text: (from && from.nick) || 'Someone' }), ' invited you to ', h('b', { text: p.name })),
@@ -532,6 +651,8 @@ function openPodForm(p) {
   var mana = (p && p.mana) || 'U';
   f.querySelectorAll('input[name=mana]').forEach(function (r) { r.checked = r.value === mana; });
   setPodJoin((p && p.join) || 'open');
+  S.podBanner = (p && p.banner) || '';
+  renderBannerPick();
   $('podOpenSeats').checked = !p || p.openSeats !== false;
   $('podDelete').hidden = !p;
   $('podDelete').textContent = 'Remove pod';
@@ -542,7 +663,7 @@ function submitPod() {
   if (!canWrite()) return;
   var name = $('podName').value.trim(); if (!name) return;
   var mana = ($('podForm').querySelector('input[name=mana]:checked') || {}).value || 'U';
-  var data = { name: name, mana: mana, join: S.podJoin, openSeats: $('podOpenSeats').checked };
+  var data = { name: name, mana: mana, join: S.podJoin, openSeats: $('podOpenSeats').checked, banner: S.podBanner || '' };
   var done = function (msg) { $('podForm').hidden = true; S.podEdit = null; toast(msg); helperSync(); };
   if (S.podEdit) {
     S.db.doc('pods/' + S.podEdit).update(data).then(function () { done('Pod saved'); }).catch(writeError);
@@ -784,9 +905,7 @@ function saveDiscord(webhook, ping) {
   S.db.doc('config/discord').set(d).then(function () { toast(webhook ? 'Discord connected' : 'Discord disconnected'); }).catch(writeError);
 }
 function renderMembers() {
-  var sec = $('membersSec');
-  sec.hidden = !(ACCOUNTS && S.isAdmin && S.state === 'ok');
-  if (sec.hidden) return;
+  if (!tabAllowed('organizer')) return;
   $('discordPanel').hidden = !!HELPER;
   var open = !!S.settings.open, openArmed = S.confirm === 'open';
   document.querySelectorAll('#openSeg button').forEach(function (b) {
@@ -865,7 +984,7 @@ function renderMe() {
   if (!canWrite()) return;
   var m = me();
   box.append(m && m.nick
-    ? h('button', { class: 'me-btn', type: 'button', onclick: function () { openNick(true); } }, h('span', { text: m.nick }), pips(m.ci), h('small', { text: 'Edit' }))
+    ? h('button', { class: 'me-btn', type: 'button', onclick: function () { openNick(false); } }, h('span', { text: m.nick }), pips(m.ci), h('small', { text: 'Profile' }))
     : h('button', { class: 'me-btn', type: 'button', onclick: function () { openNick(true); } }, 'Set your name'));
   if (ACCOUNTS) box.append(h('button', { type: 'button', class: 'link', id: 'signOutBtn', onclick: signOutNow }, 'Sign out'));
 }
@@ -983,12 +1102,28 @@ function confetti() {
 }
 
 /* ---------- card frames ---------- */
+var BANNERS = [['', 'Auto'], ['W', 'Dawn'], ['U', 'Tide'], ['B', 'Night'], ['R', 'Ember'], ['G', 'Grove'], ['gold', 'Lattice'], ['C', 'Playmat']];
 function frameFor(item, pm) {
-  var cols = [];
-  (item.podIds || []).forEach(function (id) { var p = pm[id]; if (p && p.mana && cols.indexOf(p.mana) < 0) cols.push(p.mana); });
+  var cols = [], chosen = '';
+  (item.podIds || []).forEach(function (id) {
+    var p = pm[id]; if (!p) return;
+    if (p.mana && cols.indexOf(p.mana) < 0) cols.push(p.mana);
+    if (!chosen && p.banner) chosen = p.banner;
+  });
   var f = cols.length === 0 ? 'none' : cols.length === 1 ? cols[0] : 'gold';
   var a1 = cols[0] || 'C', a2 = cols[1] || a1;
-  return { frame: 'f-' + f, art: 'art a1-' + a1 + ' a2-' + a2 };
+  // A pod's chosen banner wins; otherwise the pattern follows the frame color.
+  var pat = chosen || (f === 'none' ? 'C' : f);
+  return { frame: 'f-' + f, art: 'art a1-' + a1 + ' a2-' + a2 + ' pat-' + pat };
+}
+function renderBannerPick() {
+  var box = $('podBannerPick');
+  var mana = ($('podForm').querySelector('input[name=mana]:checked') || {}).value || 'U';
+  box.replaceChildren.apply(box, BANNERS.map(function (b) {
+    var pat = b[0] || mana, on = (S.podBanner || '') === b[0];
+    return h('button', { type: 'button', 'aria-pressed': String(on), onclick: function () { S.podBanner = b[0]; renderBannerPick(); } },
+      h('span', { class: 'art a1-' + mana + ' a2-' + mana + ' pat-' + pat, 'aria-hidden': 'true' }), b[1]);
+  }));
 }
 function typeLine(kind, item, pm) {
   var pods = podNames(item, pm);
@@ -1031,7 +1166,7 @@ function pollCard(p, pm) {
   var delArmed = S.confirm === 'd:' + p.id;
   return h('article', { class: 'poll card ' + fr.frame },
     h('div', { class: 'card-in' },
-      h('div', { class: 'titlebar' }, h('h3', { text: p.title }), h('span', { class: 'cost', text: 'Voting open' })),
+      h('div', { class: 'titlebar' }, h('h3', { text: p.title }), h('span', { class: 'cost' + (needsPoll(p, pm) ? ' needs' : ''), text: needsPoll(p, pm) ? 'Needs your vote' : 'Voting open' })),
       h('div', { class: 'typeline' },
         h('span', { text: typeLine((p.format || 'Game') + ' Poll', p, pm) }),
         h('span', { class: 'pt', 'aria-label': (p.min || 4) + ' players needed', text: '?/' + (p.min || 4) })),
@@ -1116,7 +1251,10 @@ function nightCard(n, pm, g) {
           a ? h('i', { class: 'ans ans-' + a, title: a === 'yes' ? "You're in" : a === 'maybe' ? 'Maybe' : "Can't make it" }) : null);
       }));
   }
-  return h('article', { class: 'night card ' + fr.frame },
+  var key = g ? g.key : n.id, opened = isOpen(key);
+  var more = h('button', { type: 'button', class: 'more', 'aria-expanded': String(opened),
+    onclick: function () { S.open[key] = !opened; renderNights(); } }, opened ? 'Less' : 'Details');
+  return h('article', { class: 'night card ' + fr.frame + (opened ? '' : ' compact'), 'data-key': key },
     h('div', { class: 'card-in' },
       h('div', { class: 'titlebar' }, h('h3', { text: n.title }),
         h('span', { class: 'cost', text: d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) })),
@@ -1134,7 +1272,8 @@ function nightCard(n, pm, g) {
         n.note ? h('p', { class: 'flavor', text: n.note }) : null,
         roster.children.length ? roster : null,
         row, bring,
-        h('div', { class: 'foot' }, cal, owner))));
+        h('div', { class: 'foot' }, cal, owner),
+        more)));
 }
 function renderNights() {
   keepFocus(function () {
@@ -1153,11 +1292,13 @@ function renderNights() {
         h('button', { type: 'button', class: 'ghost', onclick: clearFilters }, 'Clear filters')));
       else box.append(h('div', { class: 'empty' }, h('h3', { text: 'No upcoming nights' }), h('p', { text: 'Call the next one.' })));
     }
-    var soon = shown.filter(function (g) { return g.items[0].date < week; });
-    var later = shown.filter(function (g) { return g.items[0].date >= week; });
-    [['Next 7 days', soon], ['Later', later]].forEach(function (sec) {
+    var needs = shown.filter(function (g) { return needsNight(g.items[0], pm); });
+    var rest = shown.filter(function (g) { return needs.indexOf(g) < 0; });
+    var soon = rest.filter(function (g) { return g.items[0].date < week; });
+    var later = rest.filter(function (g) { return g.items[0].date >= week; });
+    [['Needs your answer', needs], ['Next 7 days', soon], ['Later', later]].forEach(function (sec, i) {
       if (!sec[1].length) return;
-      box.append(h('h3', { class: 'grouphead', text: sec[0] }));
+      box.append(h('h3', { class: 'grouphead' + (i === 0 ? ' needs' : ''), text: sec[0] }));
       sec[1].forEach(function (g) { box.append(nightCard(selectedIn(g), pm, g)); });
     });
 
@@ -1181,11 +1322,11 @@ function maybeOpenNick() {
 function updateControls() {
   var w = canWrite();
   $('callBtn').disabled = !w; $('addPodBtn').disabled = !w;
-  if (!w) { $('nightForm').hidden = true; $('podForm').hidden = true; $('nickForm').hidden = true; }
+  if (!w) { closeSheet(); $('podForm').hidden = true; }
 }
 function renderAll() {
-  applyIdentity(S.ciDraft != null && !$('nickForm').hidden ? S.ciDraft : (me() && me().ci));
-  renderGate(); renderNotice(); renderMe(); renderPods(); renderInvites(); renderDiscordProfile(); renderFormPods(); renderFilter(); renderPolls(); renderNights(); renderMembers(); updateControls(); maybeOpenNick();
+  applyIdentity(S.ciDraft != null && S.tab === 'me' ? S.ciDraft : (me() && me().ci));
+  renderGate(); renderNotice(); renderMe(); renderPods(); renderInvites(); renderDiscordProfile(); renderFormPods(); renderFilter(); renderPolls(); renderNights(); renderMembers(); updateControls(); maybeOpenNick(); renderTabs();
 }
 
 /* ---------- recurring games ----------
@@ -1377,9 +1518,7 @@ function startEdit(n) {
   $('formH').textContent = 'Edit night';
   $('modeSeg').hidden = true; $('repeatField').hidden = true;
   setMode('fixed');
-  var f = $('nightForm'); f.hidden = false;
-  if (f.scrollIntoView) f.scrollIntoView({ block: 'start' });
-  $('nTitle').focus();
+  openSheet();
 }
 function startEditSeries(s) {
   resetNightForm();
@@ -1395,9 +1534,7 @@ function startEditSeries(s) {
   $('formH').textContent = 'Edit recurring game';
   $('modeSeg').hidden = true;
   setMode('fixed');
-  var f = $('nightForm'); f.hidden = false;
-  if (f.scrollIntoView) f.scrollIntoView({ block: 'start' });
-  $('nTitle').focus();
+  openSheet();
 }
 // The series rule from the form. Returns null (after explaining why) if the end date doesn't make sense.
 function seriesFromForm(date, time) {
@@ -1420,21 +1557,21 @@ function submitSeries(date, time) {
     var first = seriesDates(s, date, addDaysYmd(date, 400), 1)[0];
     if (first) saveMe(function (c) { c.res = c.res || {}; c.res[occurrence(s, first).id] = 'yes'; });
     var text = ['New game night: ' + s.title].concat(seriesLines(s, podById()), ['Answer in one tap: ' + PAGE]).join('\n');
-    resetNightForm(); $('nightForm').hidden = true;
+    resetNightForm(); closeSheet();
     toast('Recurring game posted');
     return announce(text, 'Recurring game posted', { kind: 'series', id: ref.id });
   }).catch(writeError);
 }
 function submitSeriesEdit() {
   var old = seriesById(S.editingSeries);
-  if (!old) { toast('That game is gone.'); resetNightForm(); $('nightForm').hidden = true; return; }
+  if (!old) { toast('That game is gone.'); resetNightForm(); closeSheet(); return; }
   var date = $('nDate').value;
   if (!date) { toast('Pick a date first.'); return; }
   var s = seriesFromForm(date, $('nTime').value || ''); if (!s) return;
   var full = Object.assign(s, { skips: old.skips || [], by: old.by, at: old.at || Date.now() });
   var moved = ['date', 'time', 'place', 'host', 'freq', 'count', 'until'].some(function (k) { return (full[k] || '') !== (old[k] || ''); });
   S.db.doc('series/' + old.id).set(full).then(function () {
-    resetNightForm(); $('nightForm').hidden = true;
+    resetNightForm(); closeSheet();
     toast('Recurring game updated');
     if (moved) {
       full.id = old.id;
@@ -1463,7 +1600,7 @@ function submitNights() {
   S.db.collection('nights').add(doc).then(function (ref) {
     saveMe(function (c) { c.res = c.res || {}; c.res[ref.id] = 'yes'; });
     var text = ['New game night: ' + doc.title].concat(nightDetails(doc, podById()), ['Answer in one tap: ' + PAGE]).join('\n');
-    resetNightForm(); $('nightForm').hidden = true;
+    resetNightForm(); closeSheet();
     toast('Night posted');
     return announce(text, null, { kind: 'night', ids: [ref.id] });
   }).catch(writeError);
@@ -1493,21 +1630,21 @@ function submitPoll() {
     if (doc.note) lines.push(doc.note);
     lines.push('Vote here: ' + PAGE);
     var text = lines.join('\n');
-    resetNightForm(); $('nightForm').hidden = true;
+    resetNightForm(); closeSheet();
     toast('Poll posted');
     return announce(text, 'Poll posted', { kind: 'poll', id: ref.id });
   }).catch(writeError);
 }
 function submitEdit() {
   var old = S.nights.filter(function (x) { return x.id === S.editing; })[0];
-  if (!old) { toast('That night is gone.'); resetNightForm(); $('nightForm').hidden = true; return; }
+  if (!old) { toast('That night is gone.'); resetNightForm(); closeSheet(); return; }
   var date = $('nDate').value;
   if (!date) { toast('Pick a date first.'); return; }
   var patch = Object.assign(formCommon(), { date: date, time: $('nTime').value || '' });
   var moved = patch.date !== old.date || patch.time !== (old.time || '') || patch.place !== (old.place || '') || patch.host !== (old.host || '');
   var merged = Object.assign({}, old, patch);
   S.db.doc('nights/' + old.id).update(patch).then(function () {
-    resetNightForm(); $('nightForm').hidden = true;
+    resetNightForm(); closeSheet();
     toast('Night updated');
     if (moved) {
       var text = ['Updated: ' + merged.title].concat(nightDetails(merged, podById()), ['Details: ' + PAGE]).join('\n');
@@ -1525,14 +1662,24 @@ function wireForms() {
   FORMATS.forEach(function (f) { $('nFormat').append(h('option', { value: f, text: f })); });
   resetNightForm();
   $('callBtn').addEventListener('click', function () {
-    var f = $('nightForm');
-    if (!f.hidden && !S.editing && !S.editingSeries) { f.hidden = true; return; }
-    resetNightForm(); f.hidden = false; $('nTitle').focus();
+    if (needNick()) return;
+    resetNightForm(); openSheet();
   });
-  $('nightCancel').addEventListener('click', function () { resetNightForm(); $('nightForm').hidden = true; });
+  $('sheetClose').addEventListener('click', function () { resetNightForm(); closeSheet(); });
+  $('sheetBackdrop').addEventListener('click', function () { resetNightForm(); closeSheet(); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !$('nightForm').hidden) { e.preventDefault(); resetNightForm(); closeSheet(); }
+  });
+  document.querySelectorAll('#tabs button').forEach(function (b) { b.addEventListener('click', function () { setTab(b.dataset.tab); }); });
+  window.addEventListener('popstate', function () { setTab(tabFromHash() || 'games', true); });
+  window.addEventListener('hashchange', function () { var t = tabFromHash(); if (t && t !== S.tab) setTab(t, true); });
+  document.querySelectorAll('#cardsSeg button').forEach(function (b) { b.addEventListener('click', function () { setCardsPref(b.dataset.cards); }); });
+  renderCardsSeg();
+  $('nightCancel').addEventListener('click', function () { resetNightForm(); closeSheet(); });
   $('addPodBtn').addEventListener('click', function () { if (!$('podForm').hidden && !S.podEdit) { $('podForm').hidden = true; return; } openPodForm(null); });
   $('podCancel').addEventListener('click', function () { $('podForm').hidden = true; S.podEdit = null; });
   $('podDelete').addEventListener('click', deletePodFromForm);
+  $('podForm').querySelectorAll('input[name=mana]').forEach(function (r) { r.addEventListener('change', renderBannerPick); });
   document.querySelectorAll('#podJoinSeg button').forEach(function (b) { b.addEventListener('click', function () { setPodJoin(b.dataset.join); }); });
   $('inviteOpen').addEventListener('click', function () { var f = $('inviteForm'); f.hidden = !f.hidden; if (!f.hidden) fillInviteSelects(); });
   $('inviteCancel').addEventListener('click', function () { $('inviteForm').hidden = true; });
@@ -1591,6 +1738,7 @@ function wireForms() {
     var ci = validCi(S.ciDraft);
     saveMe(function (c) { c.nick = v; if (ci) c.ci = ci; else delete c.ci; }).then(function () { toast('Saved'); });
     closeNick();
+    $('callBtn').focus();
   });
   $('podForm').addEventListener('submit', function (e) { e.preventDefault(); submitPod(); });
   $('nightForm').addEventListener('submit', function (e) {
@@ -1624,12 +1772,14 @@ async function boot() {
       toast(hash === '#discord=linked' ? 'Discord connected. Your pod roles are on their way.' : "Discord didn't connect. Try again from your profile.");
     }, 400);
   }
+  S.tab = tabFromHash() || 'games';
   wireForms();
   renderAll();
   var r = await BACKEND.connect();
   S.state = r.state; S.db = r.db || null; S.uid = r.uid || null; S.isAdmin = !!(r.isAdmin || r.canEdit);
   S.canWriteFlag = r.canWrite == null ? null : r.canWrite; S.profileName = r.profileName || '';
   S.email = r.email || ''; S.request = r.request || null;
+  if (S.tab === 'me') fillNick();
   renderAll();
   if (!S.db || S.state !== 'ok') return;
   setTimeout(function () { if (!allConfirmed()) { S.slow = true; renderAll(); } }, 10000);

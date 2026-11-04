@@ -15,7 +15,7 @@ This rewrites `index.html` and `app.js` at the root (and `config.js`, so restore
 Tests (need Node and Playwright with Chromium):
 
     node dev/test/app.cjs dev/dist/test.html       # every feature, against an in-memory database
-    node dev/test/layout.cjs dev/dist/test.html    # overflow and alignment at 320, 375, 414 and 768 pixels
+    node dev/test/layout.cjs dev/dist/test.html    # overflow and alignment at 320, 375, 414, 768, 1024 and 1440 pixels
     node dev/test/csp.cjs .                        # the page's security policy
     node --import ./dev/test/reminders-mock.mjs reminders/remind.mjs   # the reminder job, against fake Google and Discord
     cp helper/worker.js /tmp/worker.mjs && node dev/test/helper.mjs /tmp/worker.mjs   # the Discord helper, against fake Firebase, Google and Discord

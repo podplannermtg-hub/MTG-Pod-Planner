@@ -23,7 +23,7 @@ const API = 'https://discord.com/api/v10';
 const GOOGLE_TOKEN = 'https://oauth2.googleapis.com/token';
 const JWKS_URL = 'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com';
 const SILENT = 4096; // Discord message flag: deliver without a notification
-const MANA_COLOR = { W: 0xE9D88E, U: 0x3B7DBF, B: 0x6A5B72, R: 0xD1523D, G: 0x3C9A59 };
+const MANA_COLOR = { W: 0xE9D88E, U: 0x3B7DBF, B: 0x3A383E, R: 0xD1523D, G: 0x3C9A59 };
 
 export default {
   async fetch(req, env) {
