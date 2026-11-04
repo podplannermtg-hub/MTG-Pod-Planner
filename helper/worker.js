@@ -25,8 +25,17 @@ const JWKS_URL = 'https://www.googleapis.com/service_accounts/v1/jwk/securetoken
 const SILENT = 4096; // Discord message flag: deliver without a notification
 const MANA_COLOR = { W: 0xE9D88E, U: 0x3B7DBF, B: 0x3A383E, R: 0xD1523D, G: 0x3C9A59 };
 
+// Setting names are matched without regard to case, so "App_URL" works the same as "APP_URL".
+function settings(env) {
+  const out = {};
+  for (const k of Object.keys(env || {})) out[k.toUpperCase()] = env[k];
+  for (const k of Object.keys(env || {})) if (k === k.toUpperCase()) out[k] = env[k];
+  return out;
+}
+
 export default {
-  async fetch(req, env) {
+  async fetch(req, rawEnv) {
+    const env = settings(rawEnv);
     try { return await route(req, env); }
     catch (e) {
       const status = e instanceof HttpError ? e.status : 500;
@@ -34,7 +43,7 @@ export default {
       return json({ error: status === 500 ? 'Something went wrong in the helper.' : e.message }, status, env);
     }
   },
-  async scheduled(event, env, ctx) { ctx.waitUntil(daily(env)); }
+  async scheduled(event, rawEnv, ctx) { ctx.waitUntil(daily(settings(rawEnv))); }
 };
 
 class HttpError extends Error { constructor(status, msg) { super(msg); this.status = status; } }
