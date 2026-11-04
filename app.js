@@ -137,7 +137,7 @@ var S = {
   confirmed: { pods: false, nights: false, polls: false, people: false },
   filter: 'all', slow: false, error: false, confirm: null, nickShown: false,
   formPods: new Set(), mode: 'fixed', editing: null,
-  request: null, authMode: 'signin', authBusy: false, authError: '', authInfo: ''
+  request: null, authMode: 'signin', authBusy: false, authError: '', authInfo: '', ciDraft: null
 };
 
 /* ---------- dates and text ---------- */
@@ -194,12 +194,13 @@ function tally(n, pm) {
     if (!p.nick) return;
     var st = answerOf(p, n);
     if (st === 'yes' || st === 'maybe' || st === 'no') {
-      c[st].push(p.nick);
+      c[st].push(p);
       var b = p.bring && p.bring[n.id];
       if (b && st !== 'no') c.bring.push(p.nick + ': ' + b);
-    } else if (invited(p, n, pm)) c.wait.push(p.nick);
+    } else if (invited(p, n, pm)) c.wait.push(p);
   });
-  sortNames(c.yes); sortNames(c.maybe); sortNames(c.no); sortNames(c.wait); sortNames(c.bring);
+  ['yes', 'maybe', 'no', 'wait'].forEach(function (k) { c[k].sort(function (a, b) { return a.nick.localeCompare(b.nick); }); });
+  sortNames(c.bring);
   return c;
 }
 function statusOf(n, c) {
@@ -338,7 +339,14 @@ function openNick(focus) {
   var f = $('nickForm'); f.hidden = false;
   var i = $('nick');
   if (!i.value) i.value = (me() && me().nick) || S.profileName || '';
+  if (S.ciDraft == null) S.ciDraft = validCi(me() && me().ci);
+  renderCiPick();
   if (focus) i.focus();
+}
+function closeNick() {
+  $('nickForm').hidden = true;
+  S.ciDraft = null;
+  applyIdentity(me() && me().ci);
 }
 function needNick() {
   if (me() && me().nick) return false;
@@ -354,7 +362,11 @@ function answer(n, k) {
     if (cur === k) { if (derivedFromPoll(c, n)) c.res[n.id] = 'none'; else delete c.res[n.id]; }
     else c.res[n.id] = k;
   });
-  if (k === 'yes' && cur !== 'yes') maybeGameOn(n, before);
+  if (k === 'yes' && cur !== 'yes') {
+    var min = n.min || 4;
+    if (before < min && before + 1 >= min) confetti();
+    maybeGameOn(n, before);
+  }
 }
 function maybeGameOn(n, before) {
   var min = n.min || 4;
@@ -689,7 +701,7 @@ function renderMe() {
   if (!canWrite()) return;
   var m = me();
   box.append(m && m.nick
-    ? h('button', { class: 'me-btn', type: 'button', onclick: function () { openNick(true); } }, h('span', { text: m.nick }), h('small', { text: 'Edit' }))
+    ? h('button', { class: 'me-btn', type: 'button', onclick: function () { openNick(true); } }, h('span', { text: m.nick }), pips(m.ci), h('small', { text: 'Edit' }))
     : h('button', { class: 'me-btn', type: 'button', onclick: function () { openNick(true); } }, 'Set your name'));
   if (ACCOUNTS) box.append(h('button', { type: 'button', class: 'link', id: 'signOutBtn', onclick: signOutNow }, 'Sign out'));
 }
@@ -753,12 +765,92 @@ function visibleFor(item, pm) {
   return ids.length === 0 || ids.some(function (id) { return mp.has(id); });
 }
 
+/* ---------- color identity ---------- */
+var CI_ORDER = 'WUBRG';
+var CI_NAMES = {
+  '': 'Colorless', W: 'Mono-White', U: 'Mono-Blue', B: 'Mono-Black', R: 'Mono-Red', G: 'Mono-Green',
+  WU: 'Azorius', UB: 'Dimir', BR: 'Rakdos', RG: 'Gruul', WG: 'Selesnya', WB: 'Orzhov', UR: 'Izzet', BG: 'Golgari', WR: 'Boros', UG: 'Simic',
+  WUG: 'Bant', WUB: 'Esper', UBR: 'Grixis', BRG: 'Jund', WRG: 'Naya', WBG: 'Abzan', WUR: 'Jeskai', UBG: 'Sultai', WBR: 'Mardu', URG: 'Temur',
+  WUBR: 'Four-color (no green)', UBRG: 'Four-color (no white)', WBRG: 'Four-color (no blue)', WURG: 'Four-color (no black)', WUBG: 'Four-color (no red)',
+  WUBRG: 'Five-color'
+};
+function validCi(ci) {
+  ci = String(ci || '').toUpperCase();
+  return CI_ORDER.split('').filter(function (c) { return ci.indexOf(c) >= 0; }).join('');
+}
+function ciName(ci) { return CI_NAMES[validCi(ci)] || 'Multicolor'; }
+function pips(ci) {
+  ci = validCi(ci);
+  return ci ? h('span', { class: 'pips', 'aria-hidden': 'true' }, ci.split('').map(function (c) { return h('i', { class: 'm-' + c }); })) : null;
+}
+function applyIdentity(ci) {
+  ci = validCi(ci);
+  var root = document.documentElement;
+  if (ci) root.setAttribute('data-ci1', ci[0]); else root.removeAttribute('data-ci1');
+  var row = $('ciRow');
+  if (row) row.replaceChildren.apply(row, (ci || CI_ORDER).split('').map(function (c) { return h('i', { class: 'dot m-' + c }); }));
+}
+function renderCiPick() {
+  var ci = validCi(S.ciDraft);
+  document.querySelectorAll('#ciPick button').forEach(function (b) { b.setAttribute('aria-pressed', String(ci.indexOf(b.dataset.c) >= 0)); });
+  $('ciName').textContent = ciName(ci);
+}
+
+/* ---------- confetti, in mana colors ---------- */
+function confetti() {
+  if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  var old = $('confetti'); if (old) old.remove();
+  var cv = h('canvas', { id: 'confetti', class: 'confetti', 'aria-hidden': 'true' });
+  document.body.append(cv);
+  var dpr = window.devicePixelRatio || 1, W = window.innerWidth, H = window.innerHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  var ctx = cv.getContext('2d'); if (!ctx) { cv.remove(); return; }
+  ctx.scale(dpr, dpr);
+  var cs = getComputedStyle(document.documentElement);
+  var cols = ['--m-w', '--m-u', '--m-b', '--m-r', '--m-g'].map(function (t) { return cs.getPropertyValue(t).trim() || '#888'; });
+  var parts = [];
+  for (var i = 0; i < 110; i++) {
+    parts.push({ x: W / 2 + (Math.random() - 0.5) * 60, y: H * 0.38, vx: (Math.random() - 0.5) * 13, vy: -4 - Math.random() * 10,
+      r: Math.random() * Math.PI, vr: (Math.random() - 0.5) * 0.4, w: 6 + Math.random() * 6, hgt: 4 + Math.random() * 4, c: cols[i % 5] });
+  }
+  var start = null;
+  function step(t) {
+    if (start == null) start = t;
+    var age = t - start;
+    ctx.clearRect(0, 0, W, H);
+    ctx.globalAlpha = Math.max(0, 1 - age / 1600);
+    parts.forEach(function (p) {
+      p.vy += 0.32; p.vx *= 0.99; p.x += p.vx; p.y += p.vy; p.r += p.vr;
+      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.r); ctx.fillStyle = p.c; ctx.fillRect(-p.w / 2, -p.hgt / 2, p.w, p.hgt); ctx.restore();
+    });
+    if (age < 1600) requestAnimationFrame(step); else cv.remove();
+  }
+  requestAnimationFrame(step);
+}
+
+/* ---------- card frames ---------- */
+function frameFor(item, pm) {
+  var cols = [];
+  (item.podIds || []).forEach(function (id) { var p = pm[id]; if (p && p.mana && cols.indexOf(p.mana) < 0) cols.push(p.mana); });
+  var f = cols.length === 0 ? 'none' : cols.length === 1 ? cols[0] : 'gold';
+  var a1 = cols[0] || 'C', a2 = cols[1] || a1;
+  return { frame: 'f-' + f, art: 'art a1-' + a1 + ' a2-' + a2 };
+}
+function typeLine(kind, item, pm) {
+  var pods = podNames(item, pm);
+  return kind + ' — ' + (pods.length ? pods.join(' · ') : 'Everyone');
+}
+function nameList(list) {
+  var out = [];
+  list.forEach(function (p, i) { if (i) out.push(', '); out.push(h('span', null, p.nick, pips(p.ci))); });
+  return out;
+}
+function initial(nick) { return (Array.from(String(nick || '?'))[0] || '?').toUpperCase(); }
+
 function pollCard(p, pm) {
   var t = pollTally(p, pm);
   var owner = canWrite() && mineId(p.by);
-  var tags = (p.podIds || []).map(function (id) { return pm[id]; }).filter(Boolean).map(function (x) {
-    return h('span', { class: 'tag' }, h('i', { class: 'dot m-' + x.mana }), x.name);
-  });
+  var fr = frameFor(p, pm);
   var opts = t.opts.map(function (x) {
     var o = x.o, mv = me() ? pollVoteOf(me(), p.id, o.id) : undefined;
     var when = fmtWhen(o.date, o.time);
@@ -780,20 +872,21 @@ function pollCard(p, pm) {
       votes);
   });
   var meta = [];
-  if (p.format) meta.push(p.format);
-  meta.push('need ' + (p.min || 4));
   if (p.place) meta.push(p.place);
-  if (p.host) meta.push('host: ' + p.host);
+  if (p.host) meta.push('Host: ' + p.host);
   var delArmed = S.confirm === 'd:' + p.id;
-  return h('article', { class: 'poll' },
-    h('span', { class: 'kicker', text: 'Voting open' }),
-    h('h3', { text: p.title }),
-    h('div', { class: 'meta' }, meta.map(function (m) { return h('span', { text: m }); })),
-    tags.length ? h('div', { class: 'tags' }, tags) : null,
-    p.note ? h('p', { class: 'note', text: p.note }) : null,
-    h('div', { class: 'opts' }, opts),
-    t.wait.length ? h('p', { class: 'hint', text: 'Waiting on: ' + t.wait.join(', ') }) : null,
-    owner ? h('div', { class: 'foot' }, h('span'), h('button', { type: 'button', class: 'link' + (delArmed ? ' danger' : ''), onclick: function () { deletePoll(p); } }, delArmed ? 'Tap again to delete this poll' : 'Delete poll')) : null);
+  return h('article', { class: 'poll card ' + fr.frame },
+    h('div', { class: 'card-in' },
+      h('div', { class: 'titlebar' }, h('h3', { text: p.title }), h('span', { class: 'cost', text: 'Voting open' })),
+      h('div', { class: 'typeline' },
+        h('span', { text: typeLine((p.format || 'Game') + ' Poll', p, pm) }),
+        h('span', { class: 'pt', 'aria-label': (p.min || 4) + ' players needed', text: '?/' + (p.min || 4) })),
+      h('div', { class: 'textbox' },
+        meta.length ? h('div', { class: 'meta' }, meta.map(function (m) { return h('span', { text: m }); })) : null,
+        p.note ? h('p', { class: 'flavor', text: p.note }) : null,
+        h('div', { class: 'opts' }, opts),
+        t.wait.length ? h('p', { class: 'hint', text: 'Waiting on: ' + t.wait.join(', ') }) : null,
+        owner ? h('div', { class: 'foot' }, h('span'), h('button', { type: 'button', class: 'link' + (delArmed ? ' danger' : ''), onclick: function () { deletePoll(p); } }, delArmed ? 'Tap again to delete this poll' : 'Delete poll')) : null)));
 }
 function renderPolls() {
   var box = $('polls'); box.replaceChildren();
@@ -806,22 +899,24 @@ function renderPolls() {
 function nightCard(n, pm) {
   var c = tally(n, pm), st = statusOf(n, c), min = n.min || 4;
   var d = parseDate(n.date);
+  var fr = frameFor(n, pm);
   var mineAns = me() ? answerOf(me(), n) : undefined;
   var seatsN = Math.max(min, c.yes.length);
   var seats = h('div', { class: 'seats', role: 'img', 'aria-label': c.yes.length + ' in, ' + c.maybe.length + ' maybe, ' + min + ' needed' });
   for (var i = 0; i < seatsN; i++) {
-    seats.append(h('span', { class: 'seat ' + (i < c.yes.length ? 'yes' : (i < c.yes.length + c.maybe.length ? 'maybe' : '')) }));
+    if (i < c.yes.length) seats.append(h('span', { class: 'seat yes', title: c.yes[i].nick, text: initial(c.yes[i].nick) }));
+    else if (i < c.yes.length + c.maybe.length) seats.append(h('span', { class: 'seat maybe', title: c.maybe[i - c.yes.length].nick + ' (maybe)', text: initial(c.maybe[i - c.yes.length].nick) }));
+    else seats.append(h('span', { class: 'seat' }));
   }
-  var tags = (n.podIds || []).map(function (id) { return pm[id]; }).filter(Boolean).map(function (p) {
-    return h('span', { class: 'tag' }, h('i', { class: 'dot m-' + p.mana }), p.name);
-  });
   var roster = h('dl', { class: 'roster' });
-  [['yes', 'In', c.yes], ['maybe', 'Maybe', c.maybe], ['no', 'Out', c.no], ['wait', 'Waiting', c.wait], ['bring', 'Bringing', c.bring]].forEach(function (r) {
-    if (r[2].length) roster.append(h('div', { class: r[0] }, h('dt', { text: r[1] }), h('dd', { text: r[2].join(r[0] === 'bring' ? '; ' : ', ') })));
+  [['yes', 'In', c.yes], ['maybe', 'Maybe', c.maybe], ['no', 'Out', c.no], ['wait', 'Waiting', c.wait]].forEach(function (r) {
+    if (r[2].length) roster.append(h('div', { class: r[0] }, h('dt', { text: r[1] }), h('dd', null, nameList(r[2]))));
   });
+  if (c.bring.length) roster.append(h('div', { class: 'bring' }, h('dt', { text: 'Bringing' }), h('dd', { text: c.bring.join('; ') })));
   var row = h('div', { class: 'rsvp', role: 'group', 'aria-label': 'Your answer for ' + n.title });
   [['yes', "I'm in"], ['maybe', 'Maybe'], ['no', "Can't"]].forEach(function (r) {
-    row.append(h('button', { type: 'button', class: 'rs ' + r[0], 'aria-pressed': String(mineAns === r[0]), disabled: !canWrite(), onclick: function () { answer(n, r[0]); } }, r[1]));
+    row.append(h('button', { type: 'button', class: 'rs ' + r[0], 'aria-pressed': String(mineAns === r[0]), disabled: !canWrite(), onclick: function () { answer(n, r[0]); } },
+      r[0] === 'yes' ? h('span', { class: 'tapcard', 'aria-hidden': 'true' }) : null, r[1]));
   });
   var bring = null;
   if (canWrite() && (mineAns === 'yes' || mineAns === 'maybe')) {
@@ -845,25 +940,28 @@ function nightCard(n, pm) {
     owner.append(h('button', { type: 'button', class: 'link' + (a1 ? ' danger' : ''), onclick: function () { cancelNight(n); } }, a1 ? 'Tap again to cancel this night' : 'Cancel night'));
     if (n.series) owner.append(h('button', { type: 'button', class: 'link' + (a2 ? ' danger' : ''), onclick: function () { cancelSeries(n); } }, a2 ? 'Tap again to cancel this and later nights' : 'Cancel this and later'));
   }
-  return h('article', { class: 'night' },
-    h('div', { class: 'date', 'aria-hidden': 'true' },
-      h('span', { class: 'mo', text: d.toLocaleDateString(undefined, { month: 'short' }) }),
-      h('span', { class: 'dd', text: String(d.getDate()) }),
-      h('span', { class: 'wd', text: d.toLocaleDateString(undefined, { weekday: 'short' }) })),
-    h('div', { class: 'body' },
-      h('div', { class: 'titlerow' }, h('h3', { text: n.title }), h('span', { class: 'pill ' + st.cls, text: st.text })),
-      h('div', { class: 'meta' },
-        n.time ? h('span', null, h('b', { text: fmtTime(n.time) })) : null,
-        h('span', { text: n.format || '' }),
-        n.place ? h('span', { text: n.place }) : null,
-        n.host ? h('span', { text: 'Host: ' + n.host }) : null,
-        n.series ? h('span', { text: 'Weekly' }) : null),
-      tags.length ? h('div', { class: 'tags' }, tags) : null,
-      n.note ? h('p', { class: 'note', text: n.note }) : null,
-      h('div', { class: 'seatrow' }, seats, h('span', { class: 'seatcount', text: c.yes.length + ' of ' + min + ' seats' })),
-      roster.children.length ? roster : null,
-      row, bring,
-      h('div', { class: 'foot' }, cal, owner)));
+  var meta = [];
+  if (n.place) meta.push(n.place);
+  if (n.host) meta.push('Host: ' + n.host);
+  if (n.series) meta.push('Weekly');
+  return h('article', { class: 'night card ' + fr.frame },
+    h('div', { class: 'card-in' },
+      h('div', { class: 'titlebar' }, h('h3', { text: n.title }),
+        h('span', { class: 'cost', text: d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) })),
+      h('div', { class: fr.art },
+        h('div', { class: 'artrow' },
+          n.time ? h('span', { class: 'timechip', text: fmtTime(n.time) }) : h('span'),
+          h('span', { class: 'pill ' + st.cls, text: st.text })),
+        seats),
+      h('div', { class: 'typeline' },
+        h('span', { text: typeLine((n.format || 'Game') + ' Night', n, pm) }),
+        h('span', { class: 'pt', 'aria-label': c.yes.length + ' of ' + min + ' seats filled', title: 'Seats filled / needed', text: c.yes.length + '/' + min })),
+      h('div', { class: 'textbox' },
+        meta.length ? h('div', { class: 'meta' }, meta.map(function (m) { return h('span', { text: m }); })) : null,
+        n.note ? h('p', { class: 'flavor', text: n.note }) : null,
+        roster.children.length ? roster : null,
+        row, bring,
+        h('div', { class: 'foot' }, cal, owner))));
 }
 function renderNights() {
   keepFocus(function () {
@@ -903,6 +1001,7 @@ function updateControls() {
   if (!w) { $('nightForm').hidden = true; $('podForm').hidden = true; $('nickForm').hidden = true; }
 }
 function renderAll() {
+  applyIdentity(S.ciDraft != null && !$('nickForm').hidden ? S.ciDraft : (me() && me().ci));
   renderGate(); renderNotice(); renderMe(); renderPods(); renderFormPods(); renderFilter(); renderPolls(); renderNights(); renderMembers(); updateControls(); maybeOpenNick();
 }
 
@@ -1045,7 +1144,15 @@ function wireForms() {
   $('nightCancel').addEventListener('click', function () { resetNightForm(); $('nightForm').hidden = true; });
   $('addPodBtn').addEventListener('click', function () { var f = $('podForm'); f.hidden = !f.hidden; if (!f.hidden) $('podName').focus(); });
   $('podCancel').addEventListener('click', function () { $('podForm').hidden = true; });
-  $('nickCancel').addEventListener('click', function () { $('nickForm').hidden = true; });
+  $('nickCancel').addEventListener('click', closeNick);
+  document.querySelectorAll('#ciPick button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var ci = validCi(S.ciDraft), c = b.dataset.c;
+      S.ciDraft = ci.indexOf(c) >= 0 ? ci.replace(c, '') : validCi(ci + c);
+      renderCiPick();
+      applyIdentity(S.ciDraft);
+    });
+  });
   $('closeAnnounce').addEventListener('click', function () { $('announce').hidden = true; });
   $('copyAnnounce').addEventListener('click', function () { copyText($('announceText').value); });
   $('addOpt').addEventListener('click', function () {
@@ -1079,8 +1186,9 @@ function wireForms() {
   $('nickForm').addEventListener('submit', function (e) {
     e.preventDefault();
     var v = $('nick').value.trim().slice(0, 24); if (!v || !canWrite()) return;
-    saveMe(function (c) { c.nick = v; }).then(function () { toast('Name saved'); });
-    $('nickForm').hidden = true;
+    var ci = validCi(S.ciDraft);
+    saveMe(function (c) { c.nick = v; if (ci) c.ci = ci; else delete c.ci; }).then(function () { toast('Saved'); });
+    closeNick();
   });
   $('podForm').addEventListener('submit', function (e) {
     e.preventDefault();

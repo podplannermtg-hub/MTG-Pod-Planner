@@ -1,0 +1,190 @@
+<div id="app">
+  <header class="top">
+    <div class="brand">
+      <div class="mana-row" id="ciRow" aria-hidden="true"><i class="dot m-W"></i><i class="dot m-U"></i><i class="dot m-B"></i><i class="dot m-R"></i><i class="dot m-G"></i></div>
+      <h1>Pod Planner</h1>
+      <p class="sub">Call a night once. Every pod sees it and answers in one tap.</p>
+    </div>
+    <div id="me" class="mebox"></div>
+  </header>
+
+  <div id="notice" class="notice" role="status" hidden></div>
+
+  <section id="gate" class="panel gate" hidden aria-live="polite"></section>
+
+  <div id="board" class="board">
+  <form id="nickForm" class="panel" hidden>
+    <div class="field">
+      <label for="nick">Your name at the table</label>
+      <input id="nick" type="text" maxlength="24" autocomplete="nickname" placeholder="Rob" required>
+    </div>
+    <fieldset class="field">
+      <legend>Your colors</legend>
+      <div class="mana ci" id="ciPick" role="group" aria-label="Your color identity">
+        <button type="button" data-c="W" aria-pressed="false" aria-label="White"><span class="swatch m-W"></span></button>
+        <button type="button" data-c="U" aria-pressed="false" aria-label="Blue"><span class="swatch m-U"></span></button>
+        <button type="button" data-c="B" aria-pressed="false" aria-label="Black"><span class="swatch m-B"></span></button>
+        <button type="button" data-c="R" aria-pressed="false" aria-label="Red"><span class="swatch m-R"></span></button>
+        <button type="button" data-c="G" aria-pressed="false" aria-label="Green"><span class="swatch m-G"></span></button>
+      </div>
+      <p class="hint"><span class="ciname" id="ciName">Colorless</span>. The app takes on your colors, and they show next to your name.</p>
+    </fieldset>
+    <div class="row">
+      <button class="primary" type="submit">Save name</button>
+      <button class="ghost" type="button" id="nickCancel">Not now</button>
+    </div>
+  </form>
+
+  <section class="strip" aria-labelledby="podsH">
+    <div class="head">
+      <h2 id="podsH">Pods</h2>
+      <button class="ghost" type="button" id="addPodBtn">New pod</button>
+    </div>
+    <p class="hint">Tap the pods you play in. Nights called for a pod show who in it has not answered yet.</p>
+    <form id="podForm" class="panel" hidden>
+      <div class="field">
+        <label for="podName">Pod name</label>
+        <input id="podName" type="text" maxlength="40" placeholder="Tuesday Commander" required>
+      </div>
+      <fieldset class="field">
+        <legend>Mana color</legend>
+        <div class="mana">
+          <label><input type="radio" name="mana" value="W" aria-label="White"><span class="swatch m-W"></span></label>
+          <label><input type="radio" name="mana" value="U" aria-label="Blue" checked><span class="swatch m-U"></span></label>
+          <label><input type="radio" name="mana" value="B" aria-label="Black"><span class="swatch m-B"></span></label>
+          <label><input type="radio" name="mana" value="R" aria-label="Red"><span class="swatch m-R"></span></label>
+          <label><input type="radio" name="mana" value="G" aria-label="Green"><span class="swatch m-G"></span></label>
+        </div>
+      </fieldset>
+      <div class="row">
+        <button class="primary" type="submit">Add pod</button>
+        <button class="ghost" type="button" id="podCancel">Cancel</button>
+      </div>
+    </form>
+    <div id="pods" class="chips"></div>
+  </section>
+
+  <section class="strip" aria-labelledby="nightsH">
+    <div class="head">
+      <h2 id="nightsH">Game nights</h2>
+      <div class="headctl">
+        <div class="seg" id="filter" role="group" aria-label="Which nights to show">
+          <button type="button" data-f="all" aria-pressed="true">All</button>
+          <button type="button" data-f="mine" aria-pressed="false">My pods</button>
+        </div>
+        <button class="primary" type="button" id="callBtn">Call a night</button>
+      </div>
+    </div>
+
+    <form id="nightForm" class="panel" hidden>
+      <h2 id="formH">Call a night</h2>
+      <div class="seg" id="modeSeg" role="group" aria-label="How to pick the date">
+        <button type="button" data-m="fixed" aria-pressed="true">Pick a date</button>
+        <button type="button" data-m="poll" aria-pressed="false">Let people vote on dates</button>
+      </div>
+      <div class="field">
+        <label for="nTitle">Night name</label>
+        <input id="nTitle" type="text" maxlength="60" placeholder="Tuesday Commander">
+      </div>
+
+      <div id="fixedFields" class="grid">
+        <div class="field"><label for="nDate">Date</label><input id="nDate" type="date"></div>
+        <div class="field"><label for="nTime">Start</label><input id="nTime" type="time"></div>
+        <div class="field" id="repeatField">
+          <label for="nRepeat">Repeat</label>
+          <select id="nRepeat">
+            <option value="1">Just this once</option>
+            <option value="4">Weekly for 4 weeks</option>
+            <option value="8">Weekly for 8 weeks</option>
+            <option value="12">Weekly for 12 weeks</option>
+          </select>
+        </div>
+      </div>
+
+      <div id="pollFields" class="field" hidden>
+        <label>Dates to vote on</label>
+        <div id="pollRows"></div>
+        <div class="row"><button class="ghost" type="button" id="addOpt">Add another date</button></div>
+        <p class="hint">Everyone marks which dates they can make. You lock in the winner and it becomes a night.</p>
+      </div>
+
+      <div class="grid">
+        <div class="field"><label for="nFormat">Format</label><select id="nFormat"></select></div>
+        <div class="field"><label for="nMin">Players needed</label><input id="nMin" type="number" min="2" max="12" value="4" inputmode="numeric"></div>
+      </div>
+      <div class="grid">
+        <div class="field"><label for="nPlace">Where</label><input id="nPlace" type="text" maxlength="80" placeholder="Dan's place, or the shop"></div>
+        <div class="field"><label for="nHost">Host</label><input id="nHost" type="text" maxlength="40" placeholder="Dan"></div>
+      </div>
+      <fieldset class="field">
+        <legend>Call these pods</legend>
+        <div id="formPods" class="chips"></div>
+      </fieldset>
+      <div class="field">
+        <label for="nNote">Note</label>
+        <textarea id="nNote" maxlength="300" placeholder="Bring a deck at power level 7. Pizza on me."></textarea>
+      </div>
+      <div class="row">
+        <button class="primary" type="submit" id="nightSubmit">Post night</button>
+        <button class="ghost" type="button" id="nightCancel">Cancel</button>
+      </div>
+    </form>
+
+    <section id="announce" class="panel" hidden aria-labelledby="announceH">
+      <h2 id="announceH">Night posted</h2>
+      <p class="hint" id="announceHint"></p>
+      <textarea id="announceText" rows="7" readonly aria-label="Message to paste into your group chats"></textarea>
+      <div class="row">
+        <button class="primary" type="button" id="copyAnnounce">Copy message</button>
+        <button class="ghost" type="button" id="closeAnnounce">Done</button>
+      </div>
+    </section>
+
+    <div id="polls" class="list"></div>
+    <div id="nights" class="list"></div>
+    <details id="pastWrap" class="past" hidden>
+      <summary id="pastSum">Earlier nights</summary>
+      <div id="past"></div>
+    </details>
+  </section>
+
+  <section id="membersSec" class="strip" aria-labelledby="membersH" hidden>
+    <div class="head"><h2 id="membersH">Organizer tools</h2></div>
+    <div class="panel">
+      <span class="sublabel">Who can join</span>
+      <div class="seg" id="openSeg" role="group" aria-label="Who can join">
+        <button type="button" data-open="false" aria-pressed="true">Invite only</button>
+        <button type="button" data-open="true" aria-pressed="false">Anyone who signs in</button>
+      </div>
+      <p class="hint" id="openHint"></p>
+    </div>
+    <div class="panel" id="invitePanel">
+      <span class="sublabel">Asking to join</span>
+      <div id="requests"></div>
+      <span class="sublabel">On the list</span>
+      <div id="memberList"></div>
+      <form id="addMemberForm" class="row">
+        <div class="field grow"><label for="newMember">Add by email</label><input id="newMember" type="email" autocomplete="off" placeholder="friend@gmail.com"></div>
+        <button class="ghost" type="submit">Add</button>
+      </form>
+    </div>
+    <div class="panel">
+      <span class="sublabel">People on the board</span>
+      <p class="hint">Blocking shuts someone out right away, even while the board is open to anyone.</p>
+      <div id="peopleList"></div>
+    </div>
+    <div class="panel">
+      <span class="sublabel">Discord announcements</span>
+      <p class="hint" id="discordHint"></p>
+      <form id="discordForm" class="grid">
+        <div class="field"><label for="discWebhook">Webhook URL</label><input id="discWebhook" type="password" autocomplete="off" spellcheck="false" placeholder="https://discord.com/api/webhooks/…"></div>
+        <div class="field"><label for="discPing">Ping</label>
+          <select id="discPing"><option value="">No ping</option><option value="@here">@here</option><option value="@everyone">@everyone</option></select>
+        </div>
+        <div class="row"><button class="ghost" type="submit">Save</button><button class="link" type="button" id="discRemove" hidden>Disconnect</button></div>
+      </form>
+    </div>
+  </section>
+  </div>
+</div>
+<div id="toast" role="status" hidden></div>
