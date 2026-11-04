@@ -3,7 +3,7 @@
     <div class="brand">
       <div class="mana-row" id="ciRow" aria-hidden="true"><i class="dot m-W"></i><i class="dot m-U"></i><i class="dot m-B"></i><i class="dot m-R"></i><i class="dot m-G"></i></div>
       <h1>Pod Planner</h1>
-      <p class="sub">Call a night once. Every pod sees it and answers in one tap.</p>
+      <p class="sub">Call a night once. The pods you pick see it and answer in one tap.</p>
     </div>
     <div id="me" class="mebox"></div>
   </header>
@@ -41,13 +41,13 @@
     </fieldset>
     <div class="field">
       <label for="area">Your area <span class="optl">optional</span></label>
-      <input id="area" type="text" maxlength="60" autocomplete="off" placeholder="Dublin, OH or 43017">
+      <input id="area" type="text" maxlength="60" autocomplete="off" placeholder="Doylestown, PA or 18901">
       <p class="hint fine">A city and state, or a ZIP code, never your street. Games show roughly how far away they are. <button type="button" class="link" id="hereBtn">Use where I am right now</button> <span id="hereNote"></span> <span class="osm">Map search by <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap</a></span></p>
     </div>
     <div id="discordProfile" class="stackbox" hidden>
       <span class="sublabel">Discord</span>
       <div class="row" id="discordLinkRow"></div>
-      <label class="check"><input type="checkbox" id="openSeatsMe"><span>Ping me as <b>@Open Seats</b> when a game anywhere has open seats</span></label>
+      <label class="check"><input type="checkbox" id="openSeatsMe"><span>Ping me as <b>@Open Seats</b> when an open game is short a player</span></label>
     </div>
     <div class="row">
       <button class="primary" type="submit">Save</button>
@@ -88,7 +88,7 @@
       <h2 id="podsH">Pods</h2>
       <button class="ghost" type="button" id="addPodBtn">New pod</button>
     </div>
-    <p class="hint">Tap the pods you play in. Nights called for a pod show who in it has not answered yet.</p>
+    <p class="hint">Tap a pod to join or leave it. Games called for a pod show who in it hasn't answered yet. Private pods only show up for their members.</p>
     <form id="podForm" class="panel" hidden>
       <h2 id="podFormH">New pod</h2>
       <div class="field">
@@ -142,7 +142,7 @@
           <div class="field"><label for="invWho">Person</label><select id="invWho"></select></div>
         </div>
         <div class="row"><button class="primary" type="submit">Send invite</button><button class="ghost" type="button" id="inviteCancel">Cancel</button></div>
-        <p class="hint">They'll see the invite at the top of their board.</p>
+        <p class="hint">They'll see it on their Pods tab. For a private pod, the pod's creator approves it first, unless you're the creator or an organizer.</p>
       </form>
     </div>
   </section>
@@ -182,8 +182,8 @@
   <section id="membersSec" class="strip view" aria-labelledby="membersH" hidden>
     <div class="head"><h2 id="membersH">Organizer tools</h2></div>
     <div class="panel">
-      <span class="sublabel">Who can join</span>
-      <div class="seg" id="openSeg" role="group" aria-label="Who can join">
+      <span class="sublabel">Who can use the board</span>
+      <div class="seg" id="openSeg" role="group" aria-label="Who can use the board">
         <button type="button" data-open="false" aria-pressed="true">Invite only</button>
         <button type="button" data-open="true" aria-pressed="false">Anyone who signs in</button>
       </div>
@@ -268,7 +268,7 @@
     <div class="field"><label for="nRegion">Area</label><select id="nRegion" required><option value="">Choose an area</option></select></div>
     <div class="field"><label for="nPlace">Where</label><input id="nPlace" type="text" maxlength="80" placeholder="Dan's place, or the shop"></div>
     <div class="field"><label for="nHost">Host</label><input id="nHost" type="text" maxlength="40" placeholder="Dan"></div>
-    <div class="field wide"><label for="nAddress">Address <span class="optl">optional</span></label><input id="nAddress" type="text" maxlength="120" autocomplete="off" placeholder="123 Main St, Columbus, OH">
+    <div class="field wide"><label for="nAddress">Address <span class="optl">optional</span></label><input id="nAddress" type="text" maxlength="120" autocomplete="off" placeholder="123 Main St, Doylestown, PA">
       <label class="check" id="addrInRow"><input type="checkbox" id="nAddrIn"><span>Only show the address to people who are in</span></label>
       <p class="hint fine">Shown in the app only, not in Discord. People can tap it for directions. For a home game, cross streets work too. <span class="osm">Map search by <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap</a></span></p></div>
   </div>
