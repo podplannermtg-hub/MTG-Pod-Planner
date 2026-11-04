@@ -54,6 +54,25 @@
       <button class="ghost" type="button" id="nickCancel">Cancel</button>
     </div>
   </form>
+  <div class="panel" id="decksPanel">
+    <div class="head"><span class="sublabel">My decks</span><button type="button" class="ghost small" id="addDeckBtn">Add a deck</button></div>
+    <div id="deckList" class="decklist"></div>
+    <form id="deckForm" class="stackbox" hidden>
+      <div class="grid">
+        <div class="field"><label for="dName">Deck name</label><input id="dName" type="text" maxlength="40" required placeholder="Superfriends"></div>
+        <div class="field"><label for="dCmd">Commander <span class="optl">optional</span></label><input id="dCmd" type="text" maxlength="80" autocomplete="off" placeholder="Atraxa, Praetors' Voice"></div>
+        <div class="field"><label for="dBracket">Bracket <span class="optl">Commander only</span></label>
+          <select id="dBracket"><option value="0">Not set</option><option value="1">1 · Exhibition</option><option value="2">2 · Core</option><option value="3">3 · Upgraded</option><option value="4">4 · Optimized</option><option value="5">5 · cEDH</option></select></div>
+        <div class="field wide"><label for="dUrl">Link <span class="optl">optional</span></label><input id="dUrl" type="text" inputmode="url" maxlength="200" autocomplete="off" placeholder="https://moxfield.com/decks/…"></div>
+      </div>
+      <p class="hint fine">Paste a link from Moxfield, Archidekt, TappedOut or anywhere. The commander's art comes from <a href="https://scryfall.com" target="_blank" rel="noopener">Scryfall</a>.</p>
+      <div class="row">
+        <button class="primary" type="submit" id="deckSave">Save deck</button>
+        <button class="ghost" type="button" id="deckCancel">Cancel</button>
+        <button class="link" type="button" id="deckDelete" hidden>Remove deck</button>
+      </div>
+    </form>
+  </div>
   <div class="panel">
     <span class="sublabel">Game cards</span>
     <div class="seg" id="cardsSeg" role="group" aria-label="How game cards start">
@@ -233,6 +252,8 @@
   <div class="grid">
     <div class="field"><label for="nFormat">Format</label><select id="nFormat"></select></div>
     <div class="field"><label for="nMin">Players needed</label><input id="nMin" type="number" min="2" max="12" value="4" inputmode="numeric"></div>
+    <div class="field" id="bracketField"><label for="nBracket">Bracket limit</label>
+      <select id="nBracket"><option value="0">Any bracket</option><option value="1">1 or lower</option><option value="2">2 or lower</option><option value="3">3 or lower</option><option value="4">4 or lower</option></select></div>
   </div>
   <div class="grid">
     <div class="field"><label for="nPlace">Where</label><input id="nPlace" type="text" maxlength="80" placeholder="Dan's place, or the shop"></div>
