@@ -1,4 +1,3 @@
-# Pod Planner setup
 
 Everything runs on free tiers: Firebase for accounts and the database, GitHub Pages for hosting, GitHub Actions for daily reminders, and an optional Discord webhook. Setup takes about 45 minutes.
 
