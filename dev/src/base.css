@@ -413,3 +413,4 @@ details.usernames{border:1px solid var(--line);border-radius:10px;padding:10px 1
 details.usernames summary{cursor:pointer;font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
 details.usernames[open] summary{margin-bottom:8px}
 details.usernames .grid{margin-top:10px}
+.spin{flex:none;width:10px;height:10px;margin:0 4px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:var(--accent-text)}

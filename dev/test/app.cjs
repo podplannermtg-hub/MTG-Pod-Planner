@@ -35,6 +35,15 @@ async function open(browser, auth, seed, extra, viewport) {
       const hit = /Columbus/.test(decodeURIComponent(u)) ? [{ lat: '39.9612', lon: '-82.9988' }] : /postalcode=43017/.test(u) ? [{ lat: '40.0992', lon: '-83.1141' }] : [];
       return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify(hit) });
     }
+    if (u.startsWith('https://photon.komoot.io/api/')) {
+      geo.push(decodeURIComponent(u));
+      const q = decodeURIComponent((u.split('q=')[1] || '').split('&')[0]).toLowerCase();
+      const feats = [
+        { geometry: { coordinates: [-75.1299, 40.3101] }, properties: { name: 'Rogue Brewing', housenumber: '12', street: 'East State Street', city: 'Doylestown', state: 'Pennsylvania', postcode: '18901', country: 'United States', osm_key: 'amenity' } },
+        { geometry: { coordinates: [-75.1302, 40.3101] }, properties: { name: 'Doylestown', state: 'Pennsylvania', country: 'United States', osm_key: 'place' } },
+      ].filter((f) => f.properties.name.toLowerCase().startsWith(q.slice(0, 3)) && (!u.includes('osm_tag=place') || f.properties.osm_key === 'place'));
+      return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ features: feats }) });
+    }
     if (u.startsWith('https://api.scryfall.com/cards/search')) {
       geo.push(decodeURIComponent(u));
       const q = decodeURIComponent(u.split('q=')[1] || '').toLowerCase();
@@ -501,12 +510,13 @@ const calls = (page) => page.evaluate(() => window.__calls);
     check('address opens directions', (await card('Brewery Night').locator('a.addr').getAttribute('href')).startsWith('https://www.google.com/maps/dir/?api=1&destination=123%20Main%20St'));
     check('calendar location includes the address', decodeURIComponent(await card('Brewery Night').locator('a:has-text("Google Calendar")').getAttribute('href')).includes('location=Rogue Brewing, 123 Main St, Columbus, OH'));
     check('no distance without an address', (await card('Existing Night').locator('.distchip').count()) === 0);
-    const before = geo.length;
+    const nomCount = () => geo.filter((u) => u.includes('nominatim')).length;
+    const before = nomCount();
     await card('Brewery Night').locator('button.link', { hasText: 'Edit' }).first().click();
     check('edit form keeps the address', (await page.inputValue('#nAddress')) === '123 Main St, Columbus, OH');
     await page.fill('#nHost', 'Dan'); await page.click('#nightSubmit');
     await page.waitForFunction(() => Object.values(window.__store.nights).some((n) => n.host === 'Dan'));
-    check('unchanged address is not looked up again', geo.length === before && Object.values((await store(page)).nights).find((n) => n.title === 'Brewery Night').lat === 39.9612);
+    check('unchanged address is not looked up again', nomCount() === before && Object.values((await store(page)).nights).find((n) => n.title === 'Brewery Night').lat === 39.9612);
     await page.waitForTimeout(100);
     if (await page.isVisible('#closeAnnounce')) await page.click('#closeAnnounce');
     await page.click('#callBtn');
@@ -524,6 +534,34 @@ const calls = (page) => page.evaluate(() => window.__calls);
     await tab(page, 'games');
     check('current location: distance from here, not saved', (await card('Brewery Night').locator('.distchip').innerText()) === 'Under 1 mi' && !('lat' in (await store(page)).people.me1));
     await page.screenshot({ path: path.join(SHOTS, 'shot-places.png'), fullPage: false });
+    // Type-ahead: pick a place, its address and map point come with it (no extra lookup).
+    await page.click('#callBtn');
+    await page.fill('#nTitle', 'Typed Night');
+    await page.locator('#nAddress').pressSequentially('rogue', { delay: 30 });
+    await page.waitForSelector('#nAddressList:not([hidden]) .sopt');
+    check('address suggestions appear', (await page.innerText('#nAddressList')).includes('Rogue Brewing') && (await page.innerText('#nAddressList')).includes('12 East State Street, Doylestown, PA 18901'));
+    await page.press('#nAddress', 'ArrowDown'); await page.press('#nAddress', 'Enter');
+    check('picking fills the address and the place name', (await page.inputValue('#nAddress')) === '12 East State Street, Doylestown, PA 18901' && (await page.inputValue('#nPlace')) === 'Rogue Brewing');
+    const nomBefore = geo.filter((u) => u.includes('nominatim')).length;
+    await page.click('#nightSubmit');
+    await page.waitForFunction(() => Object.values(window.__store.nights).some((n) => n.title === 'Typed Night'));
+    const tn = Object.values((await store(page)).nights).find((n) => n.title === 'Typed Night');
+    check('picked place saves its map point without another lookup', tn.lat === 40.3101 && tn.lng === -75.1299 && geo.filter((u) => u.includes('nominatim')).length === nomBefore, tn);
+    check('suggestions are nudged toward Bucks and Philly', geo.some((u) => u.includes('photon.komoot.io') && u.includes('lat=40.2&lon=-75.15')));
+    await page.click('#closeAnnounce').catch(() => {});
+    await tab(page, 'me');
+    await page.fill('#area', '');
+    await page.locator('#area').pressSequentially('doyl', { delay: 30 });
+    await page.waitForSelector('#areaList:not([hidden]) .sopt');
+    check('area suggests towns only', (await page.locator('#areaList .sopt').count()) === 1 && (await page.innerText('#areaList')).includes('Doylestown, PA') && geo.some((u) => u.includes('osm_tag=place')));
+    await page.click('#areaList .sopt');
+    await page.click('#nickForm button[type=submit]');
+    await page.waitForFunction(() => window.__store.people.me1.area === 'Doylestown, PA');
+    check('picked town saves as your area', (await store(page)).people.me1.alat === 40.31);
+    await tab(page, 'me');
+    await page.fill('#area', ''); await page.locator('#area').pressSequentially('18901', { delay: 20 });
+    await page.waitForTimeout(450);
+    check('a ZIP code skips suggestions', await page.locator('#areaList').isHidden());
     check('places: no errors', errors.length === 0, errors);
     await page.context().close();
   }

@@ -454,6 +454,74 @@ function deckPicker(n) {
   return wrap;
 }
 
+/* ---------- type-ahead lists (addresses, towns) ----------
+   A small reusable dropdown: waits for a pause in typing, then shows up to six matches.
+   Arrow keys move, Enter picks, Escape closes. */
+function suggestBox(o) {
+  var input = $(o.input), list = $(o.list), timer = null, seq = 0, items = [], active = -1, cache = {};
+  function close() { list.hidden = true; input.setAttribute('aria-expanded', 'false'); active = -1; input.removeAttribute('aria-activedescendant'); }
+  function render(found) {
+    items = found; active = -1; list.replaceChildren();
+    if (!found.length) { close(); return; }
+    found.forEach(function (it, i) {
+      var v = o.view(it);
+      list.append(h('li', { id: o.list + '_' + i, role: 'option', class: 'sopt', 'aria-selected': 'false',
+        onmousedown: function (e) { e.preventDefault(); pick(it); } },
+        h('span', { class: 'spin', 'aria-hidden': 'true' }),
+        h('span', { class: 'sname' }, h('b', { text: v.title }), v.sub ? h('small', { text: v.sub }) : null)));
+    });
+    list.hidden = false; input.setAttribute('aria-expanded', 'true');
+  }
+  function move(step) {
+    if (!items.length || list.hidden) return false;
+    active = (active + step + items.length) % items.length;
+    list.querySelectorAll('.sopt').forEach(function (li, i) { li.setAttribute('aria-selected', String(i === active)); if (i === active && li.scrollIntoView) li.scrollIntoView({ block: 'nearest' }); });
+    input.setAttribute('aria-activedescendant', o.list + '_' + active);
+    return true;
+  }
+  function pick(it) { close(); o.pick(it); }
+  input.addEventListener('input', function () {
+    if (o.typed) o.typed();
+    var q = input.value.trim();
+    clearTimeout(timer);
+    if (q.length < (o.min || 3) || (o.skip && o.skip(q))) { close(); return; }
+    var mine = ++seq;
+    timer = setTimeout(function () {
+      (cache[q] ? Promise.resolve(cache[q]) : o.search(q).then(function (r) { cache[q] = r; return r; }))
+        .then(function (r) { if (mine === seq && document.activeElement === input) render(r); });
+    }, 300);
+  });
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'ArrowDown') { if (move(1)) e.preventDefault(); }
+    else if (e.key === 'ArrowUp') { if (move(-1)) e.preventDefault(); }
+    else if (e.key === 'Enter' && !list.hidden && active >= 0) { e.preventDefault(); pick(items[active]); }
+    else if (e.key === 'Escape' && !list.hidden) { e.preventDefault(); close(); }
+  });
+  input.addEventListener('blur', function () { setTimeout(close, 120); });
+}
+// Photon: free OpenStreetMap search made for type-ahead, nudged toward Bucks County and Philly.
+var PHOTON = 'https://photon.komoot.io/api/';
+var STATE_ABBR = { Pennsylvania: 'PA', 'New Jersey': 'NJ', 'New York': 'NY', Delaware: 'DE', Maryland: 'MD' };
+function photonSearch(q, extra) {
+  if (typeof fetch !== 'function') return Promise.resolve([]);
+  var url = PHOTON + '?limit=6&lang=en&lat=40.2&lon=-75.15&q=' + encodeURIComponent(q) + (extra || '');
+  return fetch(url).then(function (r) { return r.ok ? r.json() : { features: [] }; }).then(function (j) {
+    return (j.features || []).map(function (f) {
+      var p = f.properties || {}, c = (f.geometry && f.geometry.coordinates) || [];
+      var lat = Number(c[1]), lng = Number(c[0]);
+      if (!isFinite(lat) || !isFinite(lng)) return null;
+      var street = [p.housenumber, p.street].filter(Boolean).join(' ');
+      var town = p.city || p.town || p.village || p.locality || p.district || '';
+      var st = STATE_ABBR[p.state] || p.state || '';
+      var stZip = [st, p.postcode].filter(Boolean).join(' ');
+      var name = p.name && p.name !== street && p.name !== town ? p.name : '';
+      return { name: name, street: street, town: town || (p.osm_key === 'place' ? p.name : ''), state: st, stZip: stZip,
+        country: p.country || '', key: p.osm_key || '', lat: roundTo(lat, 4), lng: roundTo(lng, 4) };
+    }).filter(Boolean);
+  }).catch(function () { return []; });
+}
+function placeLine(it) { return [it.street, it.town, it.stZip].filter(Boolean).join(', '); }
+
 /* ---------- places: address lookup and rough distances ----------
    Addresses and areas are turned into map coordinates with OpenStreetMap's free search, once, when saved.
    Distances are straight-line miles; tapping an address opens directions in the phone's map app. */
@@ -478,6 +546,7 @@ function geocode(q) {
 // Coordinates for the address in the form: reused if the address didn't change, looked up otherwise.
 function resolvePlace(address, old) {
   if (!address) return Promise.resolve({ lat: null, lng: null });
+  if (S.addrPick && S.addrPick.value === address) return Promise.resolve({ lat: S.addrPick.lat, lng: S.addrPick.lng });
   if (old && old.address === address && typeof old.lat === 'number') return Promise.resolve({ lat: old.lat, lng: old.lng });
   return geocode(address).then(function (g) { return g ? { lat: roundTo(g.lat, 4), lng: roundTo(g.lng, 4) } : { lat: null, lng: null }; });
 }
@@ -2105,7 +2174,8 @@ function wireForms() {
     var ci = validCi(S.ciDraft);
     var area = $('area').value.trim().slice(0, 60), m = me() || {};
     var same = area === (m.area || '');
-    var lookup = !area ? Promise.resolve(null) : same && typeof m.alat === 'number' ? Promise.resolve({ lat: m.alat, lng: m.alng }) : geocode(area);
+    var lookup = !area ? Promise.resolve(null) : same && typeof m.alat === 'number' ? Promise.resolve({ lat: m.alat, lng: m.alng })
+      : S.areaPick && S.areaPick.value === area ? Promise.resolve({ lat: S.areaPick.lat, lng: S.areaPick.lng }) : geocode(area);
     lookup.then(function (g) {
       saveMe(function (c) {
         c.nick = v; if (ci) c.ci = ci; else delete c.ci;
@@ -2142,6 +2212,26 @@ function wireForms() {
     });
   });
   $('hereBtn').addEventListener('click', useHere);
+  suggestBox({ input: 'nAddress', list: 'nAddressList', min: 3,
+    typed: function () { S.addrPick = null; },
+    search: function (q) { return photonSearch(q); },
+    view: function (it) { return { title: it.name || placeLine(it) || it.town, sub: it.name ? placeLine(it) : (it.country && it.country !== 'United States' ? it.country : '') }; },
+    pick: function (it) {
+      var value = (it.street ? placeLine(it) : [it.name, placeLine(it)].filter(Boolean).join(', ')).slice(0, 120);
+      $('nAddress').value = value;
+      S.addrPick = { value: value, lat: it.lat, lng: it.lng };
+      if (it.name && !$('nPlace').value.trim()) $('nPlace').value = it.name.slice(0, 80);
+    } });
+  suggestBox({ input: 'area', list: 'areaList', min: 3,
+    typed: function () { S.areaPick = null; },
+    skip: function (q) { return /^\d+$/.test(q); },
+    search: function (q) { return photonSearch(q, '&osm_tag=place'); },
+    view: function (it) { return { title: [it.town || it.name, it.state].filter(Boolean).join(', '), sub: it.country && it.country !== 'United States' ? it.country : '' }; },
+    pick: function (it) {
+      var value = [it.town || it.name, it.state].filter(Boolean).join(', ').slice(0, 60);
+      $('area').value = value;
+      S.areaPick = { value: value, lat: it.lat, lng: it.lng };
+    } });
   $('addDeckBtn').addEventListener('click', function () { if (!$('deckForm').hidden && !S.deckEdit) { closeDeckForm(); return; } openDeckForm(null); });
   $('deckCancel').addEventListener('click', closeDeckForm);
   $('deckDelete').addEventListener('click', deleteDeck);
