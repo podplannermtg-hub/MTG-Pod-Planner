@@ -14,7 +14,7 @@ We play in several small groups, or "pods": a Tuesday Commander crew, people who
 - **Where and how far:** add an address and people can tap it for directions. Set your area (a city or ZIP, never your street) and each game shows roughly how far away it is. Addresses stay in the app, not Discord.
 - **Decks:** keep your decklists on your profile (Moxfield, Archidekt, TappedOut or any link), pick which ones you're bringing to each game, and your commander's art shows in your seat. Hosts can set a bracket limit; decks above it are flagged in red, not blocked.
 - **Private pods:** a pod can be members only. Nobody else sees it, who's in it, or its games, and it gets its own private Discord channel.
-- **Area tags:** every game is tagged Upper Bucks, Central Bucks, Lower Bucks, MontCo, North Jersey or South Jersey, and you can filter by area. A host can also hide the address until you say you're in.
+- **Area tags:** every game is tagged Upper Bucks, Central Bucks, Lower Bucks, MontCo, Philly Area, North Jersey or South Jersey, and you can filter by area. A host can also hide the address until you say you're in.
 - **Online games:** call a game on SpellTable, Cockatrice, Tabletop Simulator, Untap, XMage, Arena, MTGO or Discord voice, with a Join game link (shown only to people who are in, by default). Profiles can hold online usernames, and an online game lists everyone's username for its platform.
 - **Recurring games**, like every other Thursday or the first Friday of the month, show as one card with their upcoming dates.
 - **Discord** gets the announcements and a reminder the day before, so nobody has to remember to check.

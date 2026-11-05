@@ -486,6 +486,7 @@ const calls = (page) => page.evaluate(() => window.__calls);
     const bn = Object.values(s.nights).find((n) => n.title === 'Brewery Night');
     check('night saves address and map point', bn.address === '123 Main St, Columbus, OH' && bn.lat === 39.9612 && bn.lng === -82.9988, bn);
     check('area tag saved (last area remembered)', bn.region === 'Lower Bucks');
+    check('Philly Area is an area choice', (await page.locator('#nRegion option', { hasText: 'Philly Area' }).count()) === 1 && (await page.locator('#fRegion option', { hasText: 'Philly Area' }).count()) === 1);
     check('Discord message names the area', posts.some((p) => p.includes('Rogue Brewing (Lower Bucks)')), posts);
     check('Discord message leaves the address out', posts.some((p) => p.startsWith('New game night: Brewery Night')) && !posts.some((p) => p.includes('Main St')), posts);
     await page.click('#closeAnnounce');
