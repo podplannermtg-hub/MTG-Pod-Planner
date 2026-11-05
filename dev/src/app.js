@@ -6,7 +6,7 @@ var PEOPLE = BACKEND.peopleCol;
 var PAGE = BACKEND.pageUrl;
 var ACCOUNTS = !!BACKEND.features.accounts;
 var HELPER = BACKEND.helper || null;
-var REGIONS = ['Upper Bucks', 'Central Bucks', 'Lower Bucks', 'MontCo', 'North Jersey', 'South Jersey'];
+var REGIONS = ['Upper Bucks', 'Central Bucks', 'Lower Bucks', 'MontCo', 'Philly Area', 'North Jersey', 'South Jersey'];
 function validRegion(r) { return REGIONS.indexOf(r) >= 0 || r === 'Online' ? r : ''; }
 // Online games: the platform, and which profile username goes with it.
 var PLATFORMS = [['SpellTable', ''], ['Cockatrice', 'cockatrice'], ['Tabletop Simulator', 'steam'], ['Untap', 'untap'], ['XMage', 'xmage'],

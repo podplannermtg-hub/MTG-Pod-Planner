@@ -553,7 +553,7 @@ function details(n, podMap) {
   if (n.note) lines.push(n.note);
   return lines;
 }
-const REGIONS = ['Upper Bucks', 'Central Bucks', 'Lower Bucks', 'MontCo', 'North Jersey', 'South Jersey'];
+const REGIONS = ['Upper Bucks', 'Central Bucks', 'Lower Bucks', 'MontCo', 'Philly Area', 'North Jersey', 'South Jersey'];
 function whenLine(n) {
   const where = n.online ? ', online' + (n.platform ? ' (' + n.platform + ')' : '')
     : (n.place ? ', ' + n.place : '') + (REGIONS.includes(n.region) ? ' (' + n.region + ')' : '');
