@@ -666,6 +666,84 @@ function photonSearch(q, extra) {
 }
 function placeLine(it) { return [it.street, it.town, it.stZip].filter(Boolean).join(', '); }
 
+/* ---------- push notifications ----------
+   Turned on per device from the Me tab; the Discord helper keeps the subscription and sends them.
+   On iPhone and iPad they only work once Pod Planner is added to the home screen and opened from there. */
+var NOTIF_PREFS = ['new', 'gameon', 'remind', 'nudge'];
+function pushApi() {
+  if (window.__pushApi) return window.__pushApi; // tests
+  var ok = !!(HELPER && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window && location.protocol === 'https:');
+  return {
+    supported: ok,
+    reg: function () { return navigator.serviceWorker.register('sw.js').then(function () { return navigator.serviceWorker.ready; }); },
+    permission: function () { return Notification.requestPermission(); },
+    current: function () { return this.reg().then(function (r) { return r.pushManager.getSubscription(); }); },
+    subscribe: function (key) { return this.reg().then(function (r) { return r.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64urlToBytes(key) }); }); }
+  };
+}
+function b64urlToBytes(s) {
+  s = s.replace(/-/g, '+').replace(/_/g, '/'); while (s.length % 4) s += '=';
+  var bin = atob(s), out = new Uint8Array(bin.length);
+  for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+function iosNeedsInstall() {
+  var ua = navigator.userAgent || '';
+  var ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && 'ontouchend' in document);
+  var standalone = navigator.standalone === true || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+  return ios && !standalone;
+}
+function renderNotif() {
+  var panel = $('notifPanel'), api = pushApi();
+  panel.hidden = !HELPER || !canWrite();
+  if (panel.hidden) return;
+  var st = S.notif || {};
+  var status = $('notifStatus');
+  $('notifPrefs').hidden = !st.on; $('notifMore').hidden = !st.on;
+  $('notifOn').hidden = !!st.on || !api.supported || iosNeedsInstall();
+  $('notifOn').disabled = !!st.busy;
+  if (iosNeedsInstall()) status.textContent = 'On iPhone and iPad: tap Share, then Add to Home Screen, and open Pod Planner from your home screen. Then turn on notifications here.';
+  else if (!api.supported) status.textContent = "This browser can't show notifications. Discord still has every game.";
+  else if (st.blocked) status.textContent = 'Notifications are blocked for this site. Allow them in your browser or phone settings, then try again.';
+  else if (st.on) status.textContent = 'On for this device. Choose what you hear about; it applies to all your devices.';
+  else status.textContent = 'Get a notification on this device for new games, Game on, and reminders.';
+  NOTIF_PREFS.forEach(function (k) { $('np_' + k).checked = !st.prefs || st.prefs[k] !== false; });
+}
+function loadNotif() {
+  var api = pushApi();
+  if (!HELPER || !api.supported || !canWrite()) { renderNotif(); return; }
+  api.current().then(function (sub) {
+    S.notif = Object.assign(S.notif || {}, { on: !!sub, endpoint: sub ? sub.endpoint : '' });
+    renderNotif();
+    if (sub) return HELPER.call('/push/status').then(function (r) { S.notif.prefs = r.prefs; renderNotif(); });
+  }).catch(function () { renderNotif(); });
+}
+function notifPrefsFromForm() { var o = {}; NOTIF_PREFS.forEach(function (k) { o[k] = $('np_' + k).checked; }); return o; }
+function turnOnNotif() {
+  var api = pushApi();
+  S.notif = Object.assign(S.notif || {}, { busy: true, blocked: false }); renderNotif();
+  Promise.resolve(api.permission()).then(function (perm) {
+    if (perm !== 'granted') { S.notif.blocked = true; return null; }
+    return HELPER.call('/push/status').then(function (r) {
+      S.notif.prefs = r.prefs;
+      return api.subscribe(r.publicKey);
+    }).then(function (sub) {
+      var j = sub.toJSON ? sub.toJSON() : sub;
+      return HELPER.call('/push/subscribe', { sub: j, prefs: S.notif.prefs }).then(function () {
+        S.notif.on = true; S.notif.endpoint = j.endpoint; toast('Notifications are on for this device');
+      });
+    });
+  }).catch(function () { toast("Couldn't turn on notifications. Try again in a minute."); })
+    .then(function () { S.notif.busy = false; renderNotif(); });
+}
+function turnOffNotif() {
+  var api = pushApi();
+  api.current().then(function (sub) {
+    var ep = (sub && sub.endpoint) || (S.notif && S.notif.endpoint) || '';
+    return Promise.resolve(sub && sub.unsubscribe ? sub.unsubscribe() : null).then(function () { return HELPER.call('/push/unsubscribe', { endpoint: ep }); });
+  }).catch(function () {}).then(function () { S.notif = { on: false }; renderNotif(); toast('Notifications are off for this device'); });
+}
+
 /* ---------- places: address lookup and rough distances ----------
    Addresses and areas are turned into map coordinates with OpenStreetMap's free search, once, when saved.
    Distances are straight-line miles; tapping an address opens directions in the phone's map app. */
@@ -776,7 +854,7 @@ function setTab(t, fromHash) {
   var was = S.tab;
   if (was === 'me' && t !== 'me' && S.ciDraft != null) { S.ciDraft = null; applyIdentity(me() && me().ci); }
   S.tab = t;
-  if (t === 'me' && was !== 'me') fillNick();
+  if (t === 'me' && was !== 'me') { fillNick(); loadNotif(); }
   if (!fromHash && location.hash !== '#' + t) {
     try { history.pushState(null, '', '#' + t); } catch (e) { location.hash = t; }
   }
@@ -1839,7 +1917,7 @@ function updateControls() {
 }
 function renderAll() {
   applyIdentity(S.ciDraft != null && S.tab === 'me' ? S.ciDraft : (me() && me().ci));
-  renderGate(); renderNotice(); renderMe(); renderDecks(); renderPods(); renderInvites(); renderDiscordProfile(); renderFormPods(); renderFilter(); renderPolls(); renderNights(); renderMembers(); updateControls(); maybeOpenNick(); renderTabs();
+  renderGate(); renderNotice(); renderMe(); renderDecks(); renderNotif(); renderPods(); renderInvites(); renderDiscordProfile(); renderFormPods(); renderFilter(); renderPolls(); renderNights(); renderMembers(); updateControls(); maybeOpenNick(); renderTabs();
 }
 
 /* ---------- recurring games ----------
@@ -2356,6 +2434,18 @@ function wireForms() {
     });
   });
   $('hereBtn').addEventListener('click', useHere);
+  $('notifOn').addEventListener('click', turnOnNotif);
+  $('notifOff').addEventListener('click', turnOffNotif);
+  $('notifTest').addEventListener('click', function () {
+    HELPER.call('/push/test').then(function (r) { toast(r.sent ? 'Test sent. It should pop up in a few seconds.' : 'No device got it. Try turning notifications off and on again.'); },
+      function () { toast("Couldn't reach the Discord helper. Try again in a minute."); });
+  });
+  NOTIF_PREFS.forEach(function (k) {
+    $('np_' + k).addEventListener('change', function () {
+      var prefs = notifPrefsFromForm(); S.notif = Object.assign(S.notif || {}, { prefs: prefs });
+      HELPER.call('/push/prefs', { prefs: prefs }).catch(function () { toast("Couldn't save that. Try again in a minute."); });
+    });
+  });
   suggestBox({ input: 'nAddress', list: 'nAddressList', min: 3,
     typed: function () { S.addrPick = null; },
     search: function (q) { return photonSearch(q); },
@@ -2531,7 +2621,7 @@ async function boot() {
   S.state = r.state; S.db = r.db || null; S.uid = r.uid || null; S.isAdmin = !!(r.isAdmin || r.canEdit);
   S.canWriteFlag = r.canWrite == null ? null : r.canWrite; S.profileName = r.profileName || '';
   S.email = r.email || ''; S.request = r.request || null;
-  if (S.tab === 'me') fillNick();
+  if (S.tab === 'me') { fillNick(); loadNotif(); }
   renderAll();
   if (!S.db || S.state !== 'ok') return;
   setTimeout(function () { if (!allConfirmed()) { S.slow = true; renderAll(); } }, 10000);

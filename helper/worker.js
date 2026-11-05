@@ -5,6 +5,10 @@
 //   - Roles: creates a Discord role for every pod (plus "Open Seats") and keeps each player's roles matching the app.
 //   - Announcements: posts new nights, polls, locked-in dates, changes and "Game on", pinging only the pods involved.
 //   - Daily (cron): re-syncs everyone's roles and posts reminders. Short nights call @Open Seats if their pods allow it.
+//   - Push notifications: people turn them on per device in the app (Me tab). The helper keeps their
+//     subscriptions in Firestore (pushsubs/<uid>, not readable by the app), makes its own VAPID keys
+//     (secrets/vapid) on first use, and sends: new games for your pods, Game on and changes for games
+//     you're in, the day-before reminder, and a nudge if you haven't answered. No setup needed.
 //   - Private pods: each gets a private channel only its role can see. Its games, reminders and "Game on" go there,
 //     never to the shared channel. (The bot needs the Manage Channels and Read Message History permissions.)
 //
@@ -66,6 +70,11 @@ async function route(req, env) {
     case '/link/remove': return json(await unlink(env, user.uid), 200, env);
     case '/sync': return json(await syncRequest(env, user, body), 200, env);
     case '/announce': return json(await announce(env, user, body), 200, env);
+    case '/push/status': return json(await pushStatus(env, user), 200, env);
+    case '/push/subscribe': return json(await pushSubscribe(env, user, body), 200, env);
+    case '/push/unsubscribe': return json(await pushUnsubscribe(env, user, body), 200, env);
+    case '/push/prefs': return json(await pushSetPrefs(env, user, body), 200, env);
+    case '/push/test': return json(await pushTest(env, user), 200, env);
     default: throw new HttpError(404, 'Not found');
   }
 }
@@ -341,6 +350,7 @@ async function announce(env, user, body) {
     const lines = ['**New game night: ' + n.title + '**'].concat(details(n, podMap));
     if (ids.length > 1) lines.push('Repeats weekly for ' + ids.length + ' weeks.');
     lines.push('Answer in one tap: ' + page);
+    await pushAbout(env, n, 'new', user.uid, podMap, { title: 'New game: ' + n.title, body: whenLine(n) + (ids.length > 1 ? ' (weekly)' : '') });
     return post(env, lines, mentionsFor(n, podMap, roles.openSeatsRoleId), { night: n });
   }
   if (kind === 'series' || kind === 'seriesUpdated') {
@@ -352,6 +362,7 @@ async function announce(env, user, body) {
     const lines = [(isNew ? '**New game night: ' : '**Updated: ') + s.title + '**'].concat(details(s, podMap));
     lines[1] = repeatLabel(s) + (s.time ? ' at ' + fmtTime(s.time) : '') + ', starting ' + fmtDate(s.date) + (s.place ? ', ' + s.place : '');
     lines.push((isNew ? 'Answer in one tap: ' : 'Details: ') + page);
+    await pushAbout(env, s, isNew ? 'new' : 'gameon', user.uid, podMap, { title: (isNew ? 'New game: ' : 'Changed: ') + s.title, body: lines[1] }, isNew ? null : 'series');
     return post(env, lines, mentionsFor(s, podMap, roles.openSeatsRoleId), {});
   }
   if (kind === 'poll') {
@@ -364,6 +375,7 @@ async function announce(env, user, body) {
     lines.push([p.format, 'need ' + (p.min || 4) + ' players', p.place].filter(Boolean).join(', '));
     if (p.note) lines.push(p.note);
     lines.push('Vote here: ' + page);
+    await pushAbout(env, p, 'new', user.uid, podMap, { title: 'Which night works? ' + p.title, body: (p.options || []).map((o) => fmtDate(o.date)).join(' / ') });
     return post(env, lines, mentionsFor(p, podMap, roles.openSeatsRoleId), {});
   }
   if (kind === 'locked' || kind === 'updated' || kind === 'gameon') {
@@ -372,11 +384,13 @@ async function announce(env, user, body) {
     if (kind === 'locked') {
       if (!n.fromPoll || !ok(n.by)) throw new HttpError(403, 'Only the person who locked it in can announce it.');
       if (!(await once('locked_' + body.id))) return { posted: false, reason: 'already announced' };
+      await pushAbout(env, n, 'new', user.uid, podMap, { title: 'Locked in: ' + n.title, body: whenLine(n) });
       return post(env, ['**Locked in: ' + n.title + '**'].concat(details(n, podMap), ['Confirm your answer: ' + page]), mentionsFor(n, podMap, roles.openSeatsRoleId), {});
     }
     if (kind === 'updated') {
       if (!ok(n.by)) throw new HttpError(403, 'Only the person who called it can announce changes.');
       if (!(await once('updated_' + body.id, 10))) return { posted: false, reason: 'announced recently' };
+      await pushAbout(env, n, 'gameon', user.uid, podMap, { title: 'Changed: ' + n.title, body: whenLine(n) }, 'in');
       return post(env, ['**Updated: ' + n.title + '**'].concat(details(n, podMap), ['Details: ' + page]), mentionsFor(n, podMap, roles.openSeatsRoleId), {});
     }
     // Game on: anyone can trigger it, but only when the seats really are full. Posted silently.
@@ -386,6 +400,7 @@ async function announce(env, user, body) {
     const min = n.min || 4;
     if (yes < min) return { posted: false, reason: 'not full yet' };
     if (!(await once('gameon_' + body.id))) return { posted: false, reason: 'already announced' };
+    await pushAbout(env, n, 'gameon', '', podMap, { title: 'Game on: ' + n.title, body: min + ' of ' + min + ' seats filled. ' + whenLine(n) }, 'in');
     return post(env, ['Game on: ' + n.title + ' has ' + min + ' of ' + min + ' seats.', whenLine(n)], { roles: [], everyone: false }, { silent: true });
   }
   throw new HttpError(400, 'Unknown announcement.');
@@ -443,6 +458,7 @@ async function daily(env) {
     const date = addDays(today, d);
     for (const n of nights.filter((x) => x.date === date).sort((a, b) => (a.time || '').localeCompare(b.time || ''))) {
       const msg = reminderFor(n, d, live, podMap, roles.openSeatsRoleId, page);
+      await pushDaily(env, n, d, live, podMap).catch((e) => console.log('push remind', e.message));
       await post(env, msg.lines, { roles: msg.roles, everyone: false }, { silent: msg.silent, channel: n.channel }).catch((e) => console.log('remind', e.message));
       sent++;
     }
@@ -678,6 +694,139 @@ function encode(v) {
   return { mapValue: { fields: encodeFields(v) } };
 }
 function encodeFields(o) { const f = {}; for (const k of Object.keys(o)) f[k] = encode(o[k]); return f; }
+
+/* ---------------- push notifications (Web Push: RFC 8030, 8291, 8292) ---------------- */
+const PUSH_PREFS = ['new', 'gameon', 'remind', 'nudge'];
+// Only the browsers' own push services: a subscription can't point the helper at any other address.
+const PUSH_HOSTS = /(^|\.)(googleapis\.com|push\.services\.mozilla\.com|push\.apple\.com|notify\.windows\.com)$/;
+function cleanPrefs(p) { const o = {}; PUSH_PREFS.forEach((k) => { o[k] = !(p && p[k] === false); }); return o; }
+let vapid = null;
+async function vapidKeys(env) {
+  if (vapid) return vapid;
+  let v = await fsGet(env, 'secrets/vapid');
+  if (!v || !v.jwk || !v.pub) {
+    const kp = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+    const jwk = await crypto.subtle.exportKey('jwk', kp.privateKey);
+    const pub = b64urlFromBytes(new Uint8Array(await crypto.subtle.exportKey('raw', kp.publicKey)));
+    await fsSet(env, 'secrets/vapid', { jwk: JSON.stringify(jwk), pub });
+    v = await fsGet(env, 'secrets/vapid'); // read back, in case two requests made keys at once
+  }
+  vapid = { pub: v.pub, key: await crypto.subtle.importKey('jwk', JSON.parse(v.jwk), { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']) };
+  return vapid;
+}
+async function pushStatus(env, user) {
+  const [keys, doc] = await Promise.all([vapidKeys(env), fsGet(env, 'pushsubs/' + user.uid)]);
+  return { publicKey: keys.pub, devices: ((doc && doc.subs) || []).length, prefs: cleanPrefs(doc && doc.prefs) };
+}
+function cleanSub(sub) {
+  const endpoint = String((sub && sub.endpoint) || '');
+  let host = '';
+  try { const u = new URL(endpoint); if (u.protocol === 'https:') host = u.hostname; } catch (e) {}
+  if (!host || !PUSH_HOSTS.test(host) || endpoint.length > 1000) throw new HttpError(400, "That isn't a browser push address.");
+  const keys = (sub && sub.keys) || {};
+  const p256dh = String(keys.p256dh || ''), auth = String(keys.auth || '');
+  if (!/^[A-Za-z0-9_-]{80,100}$/.test(p256dh) || !/^[A-Za-z0-9_-]{16,32}$/.test(auth)) throw new HttpError(400, 'Missing push keys.');
+  return { endpoint, p256dh, auth, at: Date.now() };
+}
+async function pushSubscribe(env, user, body) {
+  const sub = cleanSub(body && body.sub);
+  const doc = (await fsGet(env, 'pushsubs/' + user.uid)) || {};
+  const subs = (doc.subs || []).filter((x) => x.endpoint !== sub.endpoint).concat([sub]).slice(-5);
+  const prefs = cleanPrefs(body && body.prefs ? body.prefs : doc.prefs);
+  await fsSet(env, 'pushsubs/' + user.uid, { subs, prefs });
+  return { ok: true, devices: subs.length, prefs };
+}
+async function pushUnsubscribe(env, user, body) {
+  const doc = (await fsGet(env, 'pushsubs/' + user.uid)) || {};
+  const subs = (doc.subs || []).filter((x) => x.endpoint !== String((body && body.endpoint) || ''));
+  await fsSet(env, 'pushsubs/' + user.uid, { subs, prefs: cleanPrefs(doc.prefs) });
+  return { ok: true, devices: subs.length };
+}
+async function pushSetPrefs(env, user, body) {
+  const doc = (await fsGet(env, 'pushsubs/' + user.uid)) || {};
+  const prefs = cleanPrefs(body && body.prefs);
+  await fsSet(env, 'pushsubs/' + user.uid, { subs: doc.subs || [], prefs });
+  return { ok: true, prefs };
+}
+async function pushTest(env, user) {
+  const sent = await pushTo(env, [user.uid], null, { title: 'Pod Planner', body: "Notifications are working. You'll hear about games here.", tag: 'test' });
+  return { ok: true, sent };
+}
+// Who hears about an item: "in" = people who said yes or maybe; otherwise everyone the item invites.
+async function pushAbout(env, n, pref, skipUid, podMap, msg, who) {
+  try {
+    const [people, settings] = await Promise.all([fsList(env, 'people'), fsGet(env, 'config/settings')]);
+    const blocked = new Set(((settings || {}).blocked) || []);
+    const podIds = new Set(podMap.keys());
+    const live = people.filter((p) => p.nick && !blocked.has(p.id) && p.id !== skipUid);
+    let uids;
+    if (who === 'in') uids = live.filter((p) => { const a = answerOf(p, n); return a === 'yes' || a === 'maybe'; }).map((p) => p.id);
+    else if (who === 'series') uids = live.filter((p) => Object.keys(p.res || {}).some((k) => k.indexOf(n.id + '_') === 0 && (p.res[k] === 'yes' || p.res[k] === 'maybe'))).map((p) => p.id);
+    else uids = live.filter((p) => invited(p, n, podIds)).map((p) => p.id);
+    return await pushTo(env, uids, pref, Object.assign({ tag: (n.id || '') + ':' + pref }, msg));
+  } catch (e) { console.log('push', e.message); return 0; }
+}
+async function pushDaily(env, n, days, live, podMap) {
+  const when = days === 0 ? 'Today' : days === 1 ? 'Tomorrow' : 'In ' + days + ' days';
+  const podIds = new Set(podMap.keys());
+  const yes = live.filter((p) => answerOf(p, n) === 'yes').length, min = n.min || 4;
+  const inIds = live.filter((p) => { const a = answerOf(p, n); return a === 'yes' || a === 'maybe'; }).map((p) => p.id);
+  const waitIds = live.filter((p) => !answerOf(p, n) && invited(p, n, podIds)).map((p) => p.id);
+  await pushTo(env, inIds, 'remind', { title: when + ': ' + n.title, body: whenLine(n) + '. ' + yes + ' of ' + min + ' seats filled.', tag: n.id + ':remind' });
+  if (yes < min) await pushTo(env, waitIds, 'nudge', { title: 'Are you in? ' + n.title, body: when + ', ' + whenLine(n) + '. ' + (min - yes) + ' more needed.', tag: n.id + ':nudge' });
+}
+async function pushTo(env, uids, pref, msg) {
+  let sent = 0;
+  const page = String(env.APP_URL).split('#')[0];
+  const payload = JSON.stringify({ title: String(msg.title).slice(0, 120), body: String(msg.body || '').slice(0, 300), tag: msg.tag || '', url: page + '#games' });
+  for (const uid of [...new Set(uids)].slice(0, 300)) {
+    const doc = await fsGet(env, 'pushsubs/' + uid).catch(() => null);
+    if (!doc || !(doc.subs || []).length) continue;
+    if (pref && cleanPrefs(doc.prefs)[pref] === false) continue;
+    const keep = [];
+    for (const sub of doc.subs) {
+      const status = await webPush(env, sub, payload).catch((e) => { console.log('push send', e.message); return 0; });
+      if (status === 404 || status === 410) continue; // that device turned notifications off
+      keep.push(sub);
+      if (status >= 200 && status < 300) sent++;
+    }
+    if (keep.length !== doc.subs.length) await fsSet(env, 'pushsubs/' + uid, { subs: keep, prefs: cleanPrefs(doc.prefs) });
+  }
+  return sent;
+}
+async function hkdf(salt, ikm, info, bytes) {
+  const key = await crypto.subtle.importKey('raw', ikm, 'HKDF', false, ['deriveBits']);
+  return new Uint8Array(await crypto.subtle.deriveBits({ name: 'HKDF', hash: 'SHA-256', salt, info }, key, bytes * 8));
+}
+function concatBytes(...parts) { const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0)); let o = 0; parts.forEach((p) => { out.set(p, o); o += p.length; }); return out; }
+// Encrypts the message for one device (aes128gcm) and posts it to the browser's push service with a VAPID signature.
+export async function webPush(env, sub, payload) {
+  const keys = await vapidKeys(env);
+  const uaPublic = b64urlBytes(sub.p256dh), authSecret = b64urlBytes(sub.auth);
+  const local = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']);
+  const asPublic = new Uint8Array(await crypto.subtle.exportKey('raw', local.publicKey));
+  const uaKey = await crypto.subtle.importKey('raw', uaPublic, { name: 'ECDH', namedCurve: 'P-256' }, false, []);
+  const shared = new Uint8Array(await crypto.subtle.deriveBits({ name: 'ECDH', public: uaKey }, local.privateKey, 256));
+  const ikm = await hkdf(authSecret, shared, concatBytes(utf8('WebPush: info\0'), uaPublic, asPublic), 32);
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const cek = await hkdf(salt, ikm, utf8('Content-Encoding: aes128gcm\0'), 16);
+  const nonce = await hkdf(salt, ikm, utf8('Content-Encoding: nonce\0'), 12);
+  const aes = await crypto.subtle.importKey('raw', cek, 'AES-GCM', false, ['encrypt']);
+  const sealed = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce }, aes, concatBytes(utf8(payload), new Uint8Array([2]))));
+  const header = new Uint8Array(21); header.set(salt, 0); new DataView(header.buffer).setUint32(16, 4096); header[20] = asPublic.length;
+  const bodyBytes = concatBytes(header, asPublic, sealed);
+  const aud = new URL(sub.endpoint).origin;
+  const jwtHead = b64urlFromText(JSON.stringify({ typ: 'JWT', alg: 'ES256' }));
+  const jwtBody = b64urlFromText(JSON.stringify({ aud, exp: Math.floor(Date.now() / 1000) + 12 * 3600, sub: new URL(env.APP_URL).origin }));
+  const sig = new Uint8Array(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, keys.key, utf8(jwtHead + '.' + jwtBody)));
+  const r = await fetch(sub.endpoint, {
+    method: 'POST',
+    headers: { 'Content-Encoding': 'aes128gcm', 'Content-Type': 'application/octet-stream', TTL: '86400', Urgency: 'normal',
+      Authorization: 'vapid t=' + jwtHead + '.' + jwtBody + '.' + b64urlFromBytes(sig) + ', k=' + keys.pub },
+    body: bodyBytes
+  });
+  return r.status;
+}
 
 /* ---------------- bytes ---------------- */
 function utf8(s) { return new TextEncoder().encode(s); }

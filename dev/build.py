@@ -70,6 +70,8 @@ os.makedirs(os.path.join(OUT_DIR, 'icons'), exist_ok=True)
 for icon in ('icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'apple-touch-icon.png'):
     shutil.copyfile(os.path.join(HERE, 'assets', icon), os.path.join(OUT_DIR, 'icons', icon))
 write(os.path.join(OUT_DIR, 'manifest.webmanifest'), json.dumps(MANIFEST, indent=2) + '\n')
+# The service worker that shows push notifications (it must sit next to index.html).
+write(os.path.join(OUT_DIR, 'sw.js'), read('sw.js'))
 APP_LINKS = ('<link rel="manifest" href="manifest.webmanifest">\n'
              '<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">\n'
              '<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">\n')
