@@ -60,9 +60,14 @@ const channels = new Map([['c1', { id: 'c1', name: 'game-nights', type: 0, paren
 const privMessages = []; let chSeq = 0;
 
 let saTokens = 0;
+const pushed = []; const pushStatusFor = {};
 globalThis.fetch = async (url, init = {}) => {
   url = String(url); const method = init.method || 'GET';
   const res = (status, body) => new Response(body === undefined ? null : JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+  if (url.startsWith('https://fcm.googleapis.com/fcm/send/')) {
+    pushed.push({ url, headers: init.headers, body: Buffer.from(init.body) });
+    return new Response(null, { status: pushStatusFor[url] || 201 });
+  }
   if (url.startsWith('https://www.googleapis.com/service_accounts/')) return res(200, { keys: [idJwk] });
   if (url === 'https://oauth2.googleapis.com/token') {
     const a = new URLSearchParams(init.body).get('assertion').split('.');
@@ -259,6 +264,74 @@ check('renaming the pod renames its channel', channels.get(pp.channelId).name ==
 db.delete('privpods/pp1'); db.delete('privpods/pp1/nights/x1');
 await call('/sync', dana);
 check("a deleted private pod's channel is removed", !channels.has(pp.channelId) && !db.get('config/discordHelper').channels.pp1);
+
+// Push notifications: subscribe a fake device, then check what the helper sends can be decrypted by a real
+// Web Push library (http_ece, used by the "web-push" package) and is signed with the helper's VAPID key.
+{
+  const { createRequire } = await import('node:module');
+  let ece = null;
+  try { ece = createRequire(process.env.ECE_DIR + '/package.json')('http_ece'); } catch (e) { console.log('(http_ece not installed; using the built-in decrypter)'); }
+  const { createECDH, randomBytes } = await import('node:crypto');
+  const device = () => { const ecdh = createECDH('prime256v1'); ecdh.generateKeys(); return { ecdh, auth: randomBytes(16) }; };
+  const robDev = device(), danaDev = device();
+  const subOf = (d, id) => ({ endpoint: 'https://fcm.googleapis.com/fcm/send/' + id, keys: { p256dh: d.ecdh.getPublicKey().toString('base64url'), auth: d.auth.toString('base64url') } });
+  const st = await call('/push/status', rob);
+  check('push status gives a public key and default choices', /^[A-Za-z0-9_-]{87}$/.test(st.body.publicKey) && st.body.devices === 0 && st.body.prefs.new && st.body.prefs.nudge);
+  check('VAPID key made once and kept private', !!db.get('secrets/vapid') && (await call('/push/status', dana)).body.publicKey === st.body.publicKey);
+  check('a non-push address is refused', (await call('/push/subscribe', rob, { sub: { endpoint: 'https://evil.example.com/x', keys: subOf(robDev, 'r1').keys } })).status === 400);
+  check('subscribe', (await call('/push/subscribe', rob, { sub: subOf(robDev, 'rob1'), prefs: { new: true, gameon: true, remind: true, nudge: false } })).body.devices === 1);
+  await call('/push/subscribe', dana, { sub: subOf(danaDev, 'dana1') });
+  const open = (p, d) => {
+    if (ece) return JSON.parse(ece.decrypt(p.body, { version: 'aes128gcm', privateKey: d.ecdh, authSecret: d.auth }).toString());
+    throw new Error('no decrypter');
+  };
+  const verifyVapid = async (p) => {
+    const m = /^vapid t=([^,]+), k=(.+)$/.exec(p.headers.Authorization); if (!m) return false;
+    const [h, b, sg] = m[1].split('.'); const claims = JSON.parse(Buffer.from(b, 'base64url'));
+    const key = await subtle.importKey('raw', Buffer.from(m[2], 'base64url'), { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
+    const ok = await subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, Buffer.from(sg, 'base64url'), new TextEncoder().encode(h + '.' + b));
+    return ok && claims.aud === 'https://fcm.googleapis.com' && m[2] === st.body.publicKey && claims.exp > Date.now() / 1000 && p.headers['Content-Encoding'] === 'aes128gcm' && p.headers.TTL;
+  };
+  pushed.length = 0;
+  const t = await call('/push/test', rob);
+  check('test notification sent to my device only', t.body.sent === 1 && pushed.length === 1 && pushed[0].url.endsWith('/rob1'));
+  if (ece) {
+    const msg = open(pushed[0], robDev);
+    check('a real Web Push library decrypts it', msg.title === 'Pod Planner' && msg.body.includes('Notifications are working') && msg.url === 'https://pods.example.github.io/MTG-Pod-Planner/#games');
+  }
+  check('signed with the helper VAPID key', await verifyVapid(pushed[0]));
+  // a new game for pod p1: Dana is in p1, Rob posted it (posters aren't told about their own game)
+  pushed.length = 0;
+  db.set('nights/pn1', { title: 'Push Night', date: day(5), time: '19:00', format: 'Commander', min: 4, podIds: ['p1'], by: 'u1', at: 1, region: 'MontCo' });
+  db.set('people/u2', Object.assign({}, db.get('people/u2'), { pods: ['p1'] }));
+  await call('/announce', rob, { kind: 'night', ids: ['pn1'] });
+  check('new game: pod members notified, not the poster', pushed.length === 1 && pushed[0].url.endsWith('/dana1'));
+  if (ece) { const m = open(pushed[0], danaDev); check('new game message', m.title === 'New game: Push Night' && m.body.includes('(MontCo)') && m.tag === 'pn1:new'); }
+  // choices: Dana turns off new-game alerts
+  await call('/push/prefs', dana, { prefs: { new: false, gameon: true, remind: true, nudge: true } });
+  pushed.length = 0;
+  db.set('nights/pn2', { title: 'Quiet Night', date: day(6), format: 'Draft', min: 4, podIds: ['p1'], by: 'u1', at: 1 });
+  await call('/announce', rob, { kind: 'night', ids: ['pn2'] });
+  check('choices respected', pushed.length === 0);
+  // daily: Rob is in tomorrow's game (reminder), Dana hasn't answered (nudge on); Rob turned nudges off
+  db.set('nights/pt1', { title: 'Tomorrow Night', date: day(1), time: '19:00', format: 'Commander', min: 4, podIds: ['p1'], by: 'u2', at: 1 });
+  db.set('people/u1', Object.assign({}, db.get('people/u1'), { pods: ['p1'], res: Object.assign({}, db.get('people/u1').res, { pt1: 'yes' }) }));
+  pushed.length = 0;
+  await worker.scheduled({}, env, { waitUntil: (p) => p });
+  await new Promise((r) => setTimeout(r, 50));
+  const toRob = pushed.filter((p) => p.url.endsWith('/rob1')), toDana = pushed.filter((p) => p.url.endsWith('/dana1'));
+  if (ece) {
+    const rm = toRob.map((p) => open(p, robDev)), dm = toDana.map((p) => open(p, danaDev));
+    check('daily: reminder to people who are in', rm.some((m) => m.title === 'Tomorrow: Tomorrow Night' && m.body.includes('1 of 4 seats')));
+    check('daily: nudge to people who have not answered', dm.some((m) => m.title === 'Are you in? Tomorrow Night'));
+    check('daily: no nudge for someone who turned nudges off', !rm.some((m) => m.title.startsWith('Are you in?')));
+  }
+  // a device that turned notifications off is forgotten
+  pushStatusFor['https://fcm.googleapis.com/fcm/send/dana1'] = 410;
+  await call('/push/test', dana);
+  check('gone devices are removed', (db.get('pushsubs/u2').subs || []).length === 0);
+  check('unsubscribe', (await call('/push/unsubscribe', rob, { endpoint: 'https://fcm.googleapis.com/fcm/send/rob1' })).body.devices === 0);
+}
 
 // Unlink
 await call('/link/remove', rob);

@@ -934,6 +934,69 @@ const calls = (page) => page.evaluate(() => window.__calls);
     await b.page.context().close();
   }
 
+  /* ===== push notifications (with a stand-in for the browser's push support) ===== */
+  {
+    const stub = () => {
+      window.__pushLog = [];
+      let sub = null;
+      window.__pushApi = {
+        supported: true,
+        permission: () => { window.__pushLog.push('permission'); return Promise.resolve(window.__perm || 'granted'); },
+        current: () => Promise.resolve(sub),
+        subscribe: (key) => { window.__pushLog.push('subscribe:' + key.slice(0, 4)); sub = { endpoint: 'https://fcm.googleapis.com/fcm/send/dev1', toJSON() { return { endpoint: this.endpoint, keys: { p256dh: 'x', auth: 'y' } }; }, unsubscribe() { sub = null; return Promise.resolve(true); } }; return Promise.resolve(sub); },
+      };
+    };
+    const seed = baseSeed(); seed.people.me1 = { nick: 'Rob', pods: ['p1'], res: {} };
+    const { page, errors } = await open(browser, { state: 'ok', uid: 'me1', email: 'me@example.com', isAdmin: false }, seed, { __helper: true });
+    await page.evaluate(stub);
+    await tab(page, 'me');
+    await page.waitForSelector('#notifPanel:not([hidden])');
+    check('notifications: offered on the Me tab', await page.isVisible('#notifOn') && !(await page.isVisible('#notifPrefs')));
+    await page.click('#notifOn');
+    await page.waitForSelector('#notifPrefs:not([hidden])');
+    const calls = await page.evaluate(() => window.__helperCalls);
+    const subCall = calls.find((c) => c[0] === '/push/subscribe');
+    check('turning on asks permission, subscribes with the helper key, and saves it', JSON.stringify(await page.evaluate(() => window.__pushLog)) === '["permission","subscribe:BPub"]'
+      && subCall && subCall[1].sub.endpoint.endsWith('/dev1') && subCall[1].prefs.nudge === true);
+    check('choices shown, all on by default', (await page.locator('#notifPrefs input:checked').count()) === 4);
+    await page.uncheck('#np_nudge');
+    await page.waitForTimeout(100);
+    const pc = (await page.evaluate(() => window.__helperCalls)).filter((c) => c[0] === '/push/prefs').at(-1);
+    check('changing a choice saves it', pc && pc[1].prefs.nudge === false && pc[1].prefs.new === true);
+    await page.click('#notifTest');
+    await page.waitForTimeout(100);
+    check('send a test', (await page.evaluate(() => window.__helperCalls)).some((c) => c[0] === '/push/test') && (await page.innerText('#toast')).includes('Test sent'));
+    await page.click('#notifOff');
+    await page.waitForSelector('#notifOn:visible');
+    check('turn off on this device', (await page.evaluate(() => window.__helperCalls)).some((c) => c[0] === '/push/unsubscribe' && c[1].endpoint.endsWith('/dev1')));
+    await page.evaluate(() => { window.__perm = 'denied'; });
+    await page.click('#notifOn');
+    await page.waitForFunction(() => document.querySelector('#notifStatus').textContent.includes('blocked'));
+    check('blocked permission explained', true);
+    check('notifications: no errors', errors.length === 0, errors);
+    await page.context().close();
+  }
+  {
+    // iPhone in a Safari tab: explain Add to Home Screen instead of a button that can't work
+    const seed = baseSeed(); seed.people.me1 = { nick: 'Rob', pods: ['p1'], res: {} };
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1' });
+    const page = await ctx.newPage();
+    await page.route('**/*', (r) => r.request().url().startsWith('file://') ? r.continue() : r.abort());
+    await page.addInitScript((sd) => { window.__seed = sd; window.__auth = { state: 'ok', uid: 'me1', email: 'me@example.com' }; window.__helper = true; window.__pushApi = { supported: true, current: () => Promise.resolve(null) }; }, seed);
+    await page.goto('file://' + path.resolve(OUT) + '#me');
+    await page.waitForSelector('#notifPanel:not([hidden])');
+    check('iPhone tab: tells you to add it to the home screen', !(await page.isVisible('#notifOn')) && (await page.innerText('#notifStatus')).includes('Add to Home Screen'));
+    await ctx.close();
+  }
+  {
+    // no Discord helper: no notifications panel
+    const { page } = await open(browser, { state: 'ok', uid: 'me1', email: 'me@example.com', isAdmin: false }, baseSeed());
+    await page.waitForSelector('article.night', { state: 'attached' });
+    await tab(page, 'me');
+    check('without the helper there is no notifications panel', await page.locator('#notifPanel').isHidden());
+    await page.context().close();
+  }
+
   /* ===== phone layout: tabs, compact cards, the sheet ===== */
   {
     const seed = baseSeed();

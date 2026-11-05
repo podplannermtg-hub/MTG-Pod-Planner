@@ -116,6 +116,8 @@ var BACKEND = (function () {
     helper: window.__helper ? {
       call: function (path, body) {
         (window.__helperCalls = window.__helperCalls || []).push([path, body]);
+        if (path === '/push/status') return Promise.resolve({ publicKey: 'BPub' + 'A'.repeat(83), devices: window.__pushDevices || 0, prefs: window.__pushPrefs || { new: true, gameon: true, remind: true, nudge: true } });
+        if (path === '/push/test') return Promise.resolve({ ok: true, sent: 1 });
         return Promise.resolve(path === '/link/start' ? { url: 'https://discord.com/oauth2/authorize?test' } : path === '/announce' ? { posted: true } : { ok: true });
       }
     } : null,

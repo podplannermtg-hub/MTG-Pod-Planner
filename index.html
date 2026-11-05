@@ -565,6 +565,24 @@ details.usernames .grid{margin-top:10px}
       </div>
     </form>
   </div>
+  <div class="panel" id="notifPanel" hidden>
+    <span class="sublabel">Notifications</span>
+    <p class="hint" id="notifStatus"></p>
+    <div class="row" id="notifActions">
+      <button type="button" class="primary" id="notifOn">Turn on notifications</button>
+    </div>
+    <fieldset class="field" id="notifPrefs" hidden>
+      <legend>Notify me about</legend>
+      <label class="check"><input type="checkbox" id="np_new"><span>New games for my pods</span></label>
+      <label class="check"><input type="checkbox" id="np_gameon"><span>Game on, and changes to games I'm in</span></label>
+      <label class="check"><input type="checkbox" id="np_remind"><span>A reminder the day before games I'm in</span></label>
+      <label class="check"><input type="checkbox" id="np_nudge"><span>A nudge the day before if I haven't answered</span></label>
+    </fieldset>
+    <div class="row" id="notifMore" hidden>
+      <button type="button" class="ghost" id="notifTest">Send a test</button>
+      <button type="button" class="link" id="notifOff">Turn off on this device</button>
+    </div>
+  </div>
   <div class="panel">
     <span class="sublabel">Game cards</span>
     <div class="seg" id="cardsSeg" role="group" aria-label="How game cards start">
@@ -788,7 +806,7 @@ details.usernames .grid{margin-top:10px}
 </form>
 <div id="toast" role="status" hidden></div>
 
-<script src="config.js?v=894d34b35b"></script>
-<script type="module" src="app.js?v=894d34b35b"></script>
+<script src="config.js?v=ef8fb442fd"></script>
+<script type="module" src="app.js?v=ef8fb442fd"></script>
 </body>
 </html>
