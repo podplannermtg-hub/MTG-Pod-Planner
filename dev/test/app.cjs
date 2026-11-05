@@ -840,6 +840,61 @@ const calls = (page) => page.evaluate(() => window.__calls);
     await b.page.context().close();
   }
 
+  /* ===== online games and usernames ===== */
+  {
+    const seed = withDiscord(baseSeed());
+    seed.people.other1 = { nick: 'Dana', pods: ['p1'], res: {}, names: { cockatrice: 'danadraws' } };
+    seed.people.me1 = { nick: 'Rob', pods: ['p1'], res: {}, area: 'Doylestown, PA', alat: 40.31, alng: -75.13 };
+    const a = await open(browser, { state: 'ok', uid: 'other1', email: 'dana@example.com', isAdmin: false }, seed, { __rules: true });
+    await a.page.waitForSelector('article.night', { state: 'attached' });
+    await a.page.click('#callBtn');
+    check('in person by default', await a.page.isVisible('#nRegion') && !(await a.page.isVisible('#nPlatform')) && !(await a.page.isChecked('#nAddrIn')));
+    await a.page.click('#nWhereSeg button[data-where=online]');
+    check('online swaps area and address for platform and link', !(await a.page.isVisible('#nRegion')) && !(await a.page.isVisible('#nAddress')) && await a.page.isVisible('#nPlatform') && await a.page.isVisible('#nLink'));
+    check('online: link hidden from people not in, by default', await a.page.isChecked('#nAddrIn') && (await a.page.innerText('#addrInRow')).includes('game link'));
+    await a.page.fill('#nTitle', 'Webcam Night'); await a.page.selectOption('#nPlatform', 'Cockatrice');
+    await a.page.fill('#nLink', 'discord.gg/abc123');
+    await a.page.check('#formPods label:has-text("Tuesday Commander") input');
+    await a.page.click('#nightSubmit');
+    await a.page.waitForSelector('#announce:not([hidden])');
+    await a.page.waitForTimeout(200);
+    let st = await store(a.page);
+    const [wid, wn] = Object.entries(st.nights).find(([, n]) => n.title === 'Webcam Night');
+    check('online game saved', wn.online === true && wn.platform === 'Cockatrice' && wn.region === 'Online' && wn.address === '' && wn.place === '' && wn.link === '' && wn.addrIn === true, wn);
+    check('game link kept separately', st['nights/' + wid + '/hidden'].place.link === 'https://discord.gg/abc123');
+    check('Discord says online, without the link', a.posts.some((p) => p.includes('online (Cockatrice)')) && !a.posts.some((p) => p.includes('discord.gg')), a.posts);
+    await a.page.click('#closeAnnounce');
+    const wc = a.page.locator('article.night', { hasText: 'Webcam Night' });
+    check('host sees Join game', (await wc.locator('a.joinbtn').getAttribute('href')) === 'https://discord.gg/abc123' && (await wc.locator('a.joinbtn').innerText()).includes('Join game on Cockatrice'));
+    check('online tag instead of an area, no distance', (await wc.locator('.regionchip').innerText()) === 'Online · Cockatrice' && (await wc.locator('.distchip').count()) === 0);
+    await a.page.click('#callBtn');
+    await a.page.click('#nWhereSeg button[data-where=online]'); await a.page.click('#nWhereSeg button[data-where=person]');
+    check('back to in person restores area and address', await a.page.isVisible('#nRegion') && !(await a.page.isChecked('#nAddrIn')));
+    await a.page.click('#sheetClose');
+    await a.page.context().close();
+    const b = await open(browser, { state: 'ok', uid: 'me1', email: 'me@example.com', isAdmin: false }, st, { __rules: true });
+    await b.page.waitForSelector('article.night:has-text("Webcam Night")', { state: 'attached' });
+    const bc = b.page.locator('article.night', { hasText: 'Webcam Night' });
+    check('not in yet: no link', (await bc.locator('a.joinbtn').count()) === 0 && (await bc.innerText()).includes("Game link shown once you're in"));
+    await tab(b.page, 'me');
+    await b.page.click('#namesBox summary');
+    await b.page.fill('#nm_cockatrice', 'robplays'); await b.page.fill('#nm_arena', 'Rob#123');
+    await b.page.click('#nickForm button[type=submit]');
+    await b.page.waitForFunction(() => (window.__store.people.me1.names || {}).cockatrice === 'robplays');
+    check('usernames saved on the profile', JSON.stringify((await store(b.page)).people.me1.names) === JSON.stringify({ arena: 'Rob#123', cockatrice: 'robplays' }));
+    await tab(b.page, 'games');
+    await bc.getByRole('button', { name: "I'm in" }).click();
+    await b.page.waitForSelector('article.night:has-text("Webcam Night") a.joinbtn', { timeout: 8000 });
+    check("after I'm in: Join game appears", true);
+    const un = await bc.locator('.roster .unames').innerText();
+    check("game lists everyone's Cockatrice username", un.includes('robplays') && un.includes('danadraws') && (await bc.locator('.roster .unames button.copy').count()) === 2 && !un.includes('Rob#123'), un);
+    await b.page.selectOption('#fRegion', 'Online');
+    check('area filter: Online', (await b.page.locator('article.night').count()) === 1);
+    await b.page.click('#fClear');
+    check('online games: no errors', b.errors.length === 0, b.errors);
+    await b.page.context().close();
+  }
+
   /* ===== phone layout: tabs, compact cards, the sheet ===== */
   {
     const seed = baseSeed();

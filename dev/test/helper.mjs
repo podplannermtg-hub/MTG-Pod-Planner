@@ -212,6 +212,9 @@ check('daily: four reminders for tomorrow, including the recurring game', daily.
 check('short open-table night pings its pod and @Open Seats', open && open.allowed_mentions.roles.sort().join() === [p1Role, osRole].sort().join() && open.content.includes('seats are open'));
 check('short pod-only night pings only its pod', podOnly && podOnly.allowed_mentions.roles.join() === p2Role && !podOnly.content.includes('<@&' + osRole + '>'));
 check('full night reminder is silent', full && full.flags === 4096 && full.allowed_mentions.roles.length === 0 && full.content.includes('Game is on'));
+db.set('nights/o1', { title: 'Webcam Night', date: day(9), time: '20:00', format: 'Commander', min: 4, podIds: ['p1'], by: 'u1', at: 1, online: true, platform: 'SpellTable', region: 'Online', link: 'https://spelltable.wizards.com/game/abc' });
+await call('/announce', rob, { kind: 'night', ids: ['o1'] });
+check('online game announced as online, without the link', messages.at(-1).content.includes('online (SpellTable)') && !messages.at(-1).content.includes('spelltable.wizards.com') && !messages.at(-1).content.includes('(Online)'));
 check('daily marks reminders as handled', Date.now() - db.get('config/discordHelper').remindersAt < 60000);
 db.delete('pods/p2');
 await worker.scheduled({}, env, { waitUntil: (p) => p });

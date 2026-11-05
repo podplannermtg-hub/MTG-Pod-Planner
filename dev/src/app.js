@@ -7,7 +7,15 @@ var PAGE = BACKEND.pageUrl;
 var ACCOUNTS = !!BACKEND.features.accounts;
 var HELPER = BACKEND.helper || null;
 var REGIONS = ['Upper Bucks', 'Central Bucks', 'Lower Bucks', 'MontCo', 'North Jersey', 'South Jersey'];
-function validRegion(r) { return REGIONS.indexOf(r) >= 0 ? r : ''; }
+function validRegion(r) { return REGIONS.indexOf(r) >= 0 || r === 'Online' ? r : ''; }
+// Online games: the platform, and which profile username goes with it.
+var PLATFORMS = [['SpellTable', ''], ['Cockatrice', 'cockatrice'], ['Tabletop Simulator', 'steam'], ['Untap', 'untap'], ['XMage', 'xmage'],
+  ['MTG Arena', 'arena'], ['MTGO', 'mtgo'], ['Discord voice', ''], ['Other', '']];
+var NAME_FIELDS = [['arena', 'MTG Arena ID', 'RobPlays#12345'], ['cockatrice', 'Cockatrice', 'robplays'], ['steam', 'Steam (Tabletop Simulator)', 'robplays'],
+  ['mtgo', 'MTGO', 'robplays'], ['untap', 'Untap', 'robplays'], ['xmage', 'XMage', 'robplays']];
+function validPlatform(p) { return PLATFORMS.some(function (x) { return x[0] === p; }) ? p : ''; }
+function nameKeyFor(platform) { var x = PLATFORMS.filter(function (y) { return y[0] === platform; })[0]; return x ? x[1] : ''; }
+function nameLabel(key) { var x = NAME_FIELDS.filter(function (y) { return y[0] === key; })[0]; return x ? x[1] : key; }
 var FORMATS = ['Commander', 'cEDH', 'Draft', 'Sealed', 'Cube', 'Standard', 'Modern', 'Pauper', 'Other'];
 
 function h(tag, props) {
@@ -39,7 +47,7 @@ var S = {
   series: [], sel: {}, f: { q: '', pod: 'all', format: '', region: '' }, editingSeries: null,
   loaded: { pods: false, nights: false, polls: false, people: false, series: false },
   confirmed: { pods: false, nights: false, polls: false, people: false, series: false },
-  slow: false, error: false, confirm: null, nickShown: false, tab: 'games', open: {}, here: null, formPlace: { lat: null, lng: null },
+  slow: false, error: false, confirm: null, nickShown: false, where: 'person', tab: 'games', open: {}, here: null, formPlace: { lat: null, lng: null },
   formPods: new Set(), mode: 'fixed', editing: null,
   // Public data comes from the top-level collections; each private pod keeps its own games under privpods/<id>/.
   pub: { pods: [], nights: [], series: [], polls: [] }, priv: { pods: {}, data: {} }, subs: {}, hidden: {}, hiddenSubs: {}, podVis: 'public',
@@ -179,7 +187,8 @@ function armConfirm(key, again) {
 
 /* ---------- messages (Discord and copy) ---------- */
 function nightDetails(n, pm) {
-  var lines = [fmtWhen(n.date, n.time, true) + (n.place ? ', ' + n.place : '') + (validRegion(n.region) ? ' (' + n.region + ')' : '')];
+  var lines = [fmtWhen(n.date, n.time, true) + (n.online ? ', online' + (n.platform ? ' (' + n.platform + ')' : '')
+    : (n.place ? ', ' + n.place : '') + (validRegion(n.region) ? ' (' + n.region + ')' : ''))];
   var meta = [];
   if (n.format) meta.push(n.format);
   if (hasBrackets(n.format) && n.bracket) meta.push('bracket ' + n.bracket + ' or lower');
@@ -495,7 +504,11 @@ function mapsUrl(address) {
     : 'https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(address);
 }
 function addressOf(n) { return n.addrIn ? ((S.hidden[n.id] && S.hidden[n.id].address) || '') : (n.address || ''); }
-function fullPlace(n) { return [n.place, addressOf(n)].filter(Boolean).join(', '); }
+function linkOf(n) { return safeLink(n.addrIn ? ((S.hidden[n.id] && S.hidden[n.id].link) || '') : (n.link || '')); }
+function fullPlace(n) {
+  if (n.online) return ['Online' + (n.platform ? ' (' + n.platform + ')' : ''), linkOf(n)].filter(Boolean).join(' ');
+  return [n.place, addressOf(n)].filter(Boolean).join(', ');
+}
 function useHere() {
   if (!navigator.geolocation) { toast("This browser can't share your location."); return; }
   $('hereNote').textContent = 'Finding you…';
@@ -513,6 +526,9 @@ function useHere() {
 function fillNick() {
   $('nick').value = (me() && me().nick) || S.profileName || '';
   $('area').value = (me() && me().area) || '';
+  var names = (me() && me().names) || {};
+  NAME_FIELDS.forEach(function (f) { var el = $('nm_' + f[0]); if (el) el.value = names[f[0]] || ''; });
+  $('namesBox').open = NAME_FIELDS.some(function (f) { return names[f[0]]; });
   S.ciDraft = validCi(me() && me().ci);
   renderCiPick();
   renderDiscordProfile();
@@ -713,7 +729,7 @@ function lockIn(p, o) {
   if (!armConfirm('l:' + p.id + o.id, renderPolls)) return;
   var doc = {
     title: p.title, date: o.date, time: o.time || '', place: p.place || '', host: p.host || '', format: p.format,
-    address: p.address || '', lat: typeof p.lat === 'number' ? p.lat : null, lng: typeof p.lng === 'number' ? p.lng : null, bracket: p.bracket || 0, region: p.region || '',
+    address: p.address || '', lat: typeof p.lat === 'number' ? p.lat : null, lng: typeof p.lng === 'number' ? p.lng : null, bracket: p.bracket || 0, region: p.region || '', online: !!p.online, platform: p.platform || '', link: p.link || '',
     min: p.min || 4, podIds: p.podIds || [], note: p.note || '', fromPoll: p.id, fromOpt: o.id, by: S.uid, at: Date.now()
   };
   S.db.collection(baseOf(p) + 'nights').add(doc).then(function (ref) {
@@ -1395,7 +1411,8 @@ function pollCard(p, pm) {
       votes);
   });
   var meta = [];
-  if (validRegion(p.region)) meta.push(h('span', { class: 'regionchip', text: p.region }));
+  if (p.online) meta.push(h('span', { class: 'regionchip online', text: 'Online' + (p.platform ? ' · ' + p.platform : '') }));
+  else if (validRegion(p.region)) meta.push(h('span', { class: 'regionchip', text: p.region }));
   if (p.place) meta.push(p.place);
   if (p.address) meta.push(h('a', { class: 'addr', href: mapsUrl(p.address), target: '_blank', rel: 'noopener', title: 'Directions' }, p.address));
   if (p.host) meta.push('Host: ' + p.host);
@@ -1462,6 +1479,15 @@ function nightCard(n, pm, g) {
   });
   if (c.bring.length) roster.append(h('div', { class: 'bring' }, h('dt', { text: 'Bringing' }), h('dd', { text: c.bring.join('; ') })));
   if (deckRows.length) roster.append(h('div', { class: 'decks' }, h('dt', { text: 'Decks' }), h('dd', null, deckRows)));
+  // Online: everyone's username for this game's platform, with a copy button.
+  var nkey = n.online ? nameKeyFor(n.platform) : '';
+  if (nkey && (c.yes.length || c.maybe.length)) {
+    roster.append(h('div', { class: 'unames' }, h('dt', { text: nameLabel(nkey).replace(/ \(.*\)$/, '') }), h('dd', null, c.yes.concat(c.maybe).map(function (p) {
+      var u = p.names && p.names[nkey];
+      return h('span', { class: 'uname' }, h('b', { text: p.nick + ': ' }), u ? h('code', { text: u }) : h('i', { text: 'not added yet' }),
+        u ? h('button', { type: 'button', class: 'link copy', 'aria-label': 'Copy ' + p.nick + "'s username", onclick: function () { copyText(u); } }, 'Copy') : null);
+    }))));
+  }
   var row = h('div', { class: 'rsvp', role: 'group', 'aria-label': 'Your answer for ' + n.title });
   [['yes', "I'm in"], ['maybe', 'Maybe'], ['no', "Can't"]].forEach(function (r) {
     row.append(h('button', { type: 'button', class: 'rs ' + r[0], 'aria-pressed': String(mineAns === r[0]), disabled: !canWrite(), onclick: function () { answer(n, r[0]); } },
@@ -1498,10 +1524,14 @@ function nightCard(n, pm, g) {
   var meta = [];
   if (n.place) meta.push(n.place);
   var hp = n.addrIn ? hiddenPlace(n) : null, placeOf = hp || n;
-  if (placeOf.address) meta.push(h('a', { class: 'addr', href: mapsUrl(placeOf.address), target: '_blank', rel: 'noopener', title: 'Directions' }, placeOf.address));
+  var joinLink = n.online ? linkOf(n) : '';
+  if (n.online) {
+    if (n.platform) meta.push('Online on ' + n.platform);
+    if (n.addrIn && !hp) meta.push(h('span', { class: 'addrlock', text: 'Game link shown once you\'re in' }));
+  } else if (placeOf.address) meta.push(h('a', { class: 'addr', href: mapsUrl(placeOf.address), target: '_blank', rel: 'noopener', title: 'Directions' }, placeOf.address));
   else if (n.addrIn) meta.push(h('span', { class: 'addrlock', text: 'Address shown once you\'re in' }));
   if (n.host) meta.push('Host: ' + n.host);
-  var dist = distanceText(placeOf);
+  var dist = n.online ? '' : distanceText(placeOf);
   var nightPods = (n.podIds || []).map(function (id) { return pm[id]; }).filter(Boolean);
   if (nightPods.length) meta.push(nightPods.some(function (p) { return p.openSeats === false; }) ? 'Pod only' : 'Open table');
   if (ser) meta.push(repeatLabel(ser)); else if (n.series) meta.push('Weekly');
@@ -1518,6 +1548,7 @@ function nightCard(n, pm, g) {
   var key = g ? g.key : n.id, opened = isOpen(key);
   var more = h('button', { type: 'button', class: 'more', 'aria-expanded': String(opened),
     onclick: function () { S.open[key] = !opened; renderNights(); } }, opened ? 'Less' : 'Details');
+  var joinRow = n.online && joinLink ? h('a', { class: 'joinbtn', href: joinLink, target: '_blank', rel: 'noopener' }, 'Join game' + (n.platform ? ' on ' + n.platform : '')) : null;
   return h('article', { class: 'night card ' + fr.frame + (opened ? '' : ' compact'), 'data-key': key },
     h('div', { class: 'card-in' },
       h('div', { class: 'titlebar' }, h('h3', { text: n.title }),
@@ -1526,7 +1557,8 @@ function nightCard(n, pm, g) {
         h('div', { class: 'artrow' },
           h('span', { class: 'chiprow' },
             n.time ? h('span', { class: 'timechip', text: fmtTime(n.time) }) : null,
-            validRegion(n.region) ? h('span', { class: 'regionchip', text: n.region }) : null,
+            n.online ? h('span', { class: 'regionchip online', text: 'Online' + (n.platform ? ' · ' + n.platform : '') })
+              : validRegion(n.region) ? h('span', { class: 'regionchip', text: n.region }) : null,
             dist ? h('span', { class: 'distchip', title: 'Straight-line distance from your area', text: dist }) : null),
           h('span', { class: 'pill ' + st.cls, text: st.text })),
         seats,
@@ -1535,7 +1567,7 @@ function nightCard(n, pm, g) {
         h('span', { text: typeLine((n.format || 'Game') + ' Night', n, pm) + (hasBrackets(n.format) && n.bracket ? ' · Bracket ' + n.bracket + ' or lower' : '') }),
         h('span', { class: 'pt', 'aria-label': c.yes.length + ' of ' + min + ' seats filled', title: 'Seats filled / needed', text: c.yes.length + '/' + min })),
       h('div', { class: 'textbox' },
-        datesRow,
+        datesRow, joinRow,
         meta.length ? h('div', { class: 'meta' }, meta.map(function (m) { return typeof m === 'string' ? h('span', { text: m }) : m; })) : null,
         n.note ? h('p', { class: 'flavor', text: n.note }) : null,
         roster.children.length ? roster : null,
@@ -1636,7 +1668,7 @@ function seriesDates(s, from, to, max) {
 }
 function occurrence(s, ymd) {
   return { id: s.id + '_' + ymd.replace(/-/g, ''), date: ymd, time: s.time || '', title: s.title, place: s.place || '', host: s.host || '',
-    address: s.address || '', lat: s.lat, lng: s.lng, bracket: s.bracket || 0, region: s.region || '', format: s.format, min: s.min || 4, podIds: s.podIds || [], note: s.note || '', by: s.by, at: s.at, series: s.id, virtual: true, _priv: s._priv };
+    address: s.address || '', lat: s.lat, lng: s.lng, bracket: s.bracket || 0, region: s.region || '', online: !!s.online, platform: s.platform || '', link: s.link || '', format: s.format, min: s.min || 4, podIds: s.podIds || [], note: s.note || '', by: s.by, at: s.at, series: s.id, virtual: true, _priv: s._priv };
 }
 function repeatLabel(s) {
   var day = parseDate(s.date).toLocaleDateString(undefined, { weekday: 'long' });
@@ -1708,7 +1740,7 @@ function visibleFor(item, pm) {
   if (f.format && item.format !== f.format) return false;
   if (f.region && item.region !== f.region) return false;
   if (f.q) {
-    var hay = [item.title, item.place, item.address, item.region, item.host, item.note, item.format].join(' ').toLowerCase();
+    var hay = [item.title, item.place, item.address, item.region, item.platform, item.host, item.note, item.format].join(' ').toLowerCase();
     if (hay.indexOf(f.q.toLowerCase()) < 0) return false;
   }
   return true;
@@ -1772,7 +1804,7 @@ function resetNightForm() {
   S.editing = null; S.editingSeries = null;
   var t = todayStr();
   $('nDate').value = t; $('nTime').value = '19:00'; $('nMin').value = '4';
-  $('nBracket').value = '0'; S.formLock = null;
+  $('nBracket').value = '0'; S.formLock = null; setWhere('person');
   try { $('nRegion').value = validRegion(localStorage.getItem('pp.region')); } catch (e) {}
   $('nRepeat').value = 'none'; $('optNone').disabled = false; $('nEnds').value = 'never'; $('nCount').value = '6'; $('nUntil').value = '';
   $('pollRows').replaceChildren();
@@ -1789,8 +1821,11 @@ function startEdit(n) {
   $('nTitle').value = n.title || ''; $('nDate').value = n.date; $('nTime').value = n.time || '';
   $('nFormat').value = n.format || 'Commander'; $('nMin').value = n.min || 4;
   $('nPlace').value = n.place || ''; $('nHost').value = n.host || ''; $('nNote').value = n.note || ''; $('nAddress').value = n.address || '';
-  $('nBracket').value = String(n.bracket || 0); updateBracketUI(); $('nRegion').value = validRegion(n.region);
-  if (n.addrIn) { $('nAddress').value = (S.hidden[n.id] && S.hidden[n.id].address) || ''; $('nAddrIn').checked = true; }
+  $('nBracket').value = String(n.bracket || 0); updateBracketUI(); $('nRegion').value = REGIONS.indexOf(n.region) >= 0 ? n.region : '';
+  setWhere(n.online ? 'online' : 'person', true);
+  $('nPlatform').value = validPlatform(n.platform) || 'SpellTable'; $('nLink').value = n.link || '';
+  $('nAddrIn').checked = !!n.addrIn;
+  if (n.addrIn) { $('nAddress').value = (S.hidden[n.id] && S.hidden[n.id].address) || ''; $('nLink').value = (S.hidden[n.id] && S.hidden[n.id].link) || ''; }
   S.formLock = baseOf(n);
   S.formPods = new Set(n.podIds || []); renderFormPods();
   $('formH').textContent = 'Edit night';
@@ -1804,7 +1839,8 @@ function startEditSeries(s) {
   $('nTitle').value = s.title || ''; $('nDate').value = s.date; $('nTime').value = s.time || '';
   $('nFormat').value = s.format || 'Commander'; $('nMin').value = s.min || 4;
   $('nPlace').value = s.place || ''; $('nHost').value = s.host || ''; $('nNote').value = s.note || ''; $('nAddress').value = s.address || '';
-  $('nBracket').value = String(s.bracket || 0); updateBracketUI(); $('nRegion').value = validRegion(s.region);
+  $('nBracket').value = String(s.bracket || 0); updateBracketUI(); $('nRegion').value = REGIONS.indexOf(s.region) >= 0 ? s.region : '';
+  setWhere(s.online ? 'online' : 'person', true); $('nPlatform').value = validPlatform(s.platform) || 'SpellTable'; $('nLink').value = s.link || '';
   S.formLock = baseOf(s);
   $('nRepeat').value = s.freq; $('optNone').disabled = true;
   $('nEnds').value = s.count ? 'count' : s.until ? 'until' : 'never';
@@ -1850,7 +1886,7 @@ function submitSeriesEdit() {
   if (!date) { toast('Pick a date first.'); return; }
   var s = seriesFromForm(date, $('nTime').value || ''); if (!s) return;
   var full = Object.assign(s, { skips: old.skips || [], by: old.by, at: old.at || Date.now() });
-  var moved = ['date', 'time', 'place', 'host', 'address', 'region', 'bracket', 'freq', 'count', 'until'].some(function (k) { return (full[k] || '') !== (old[k] || ''); });
+  var moved = ['date', 'time', 'place', 'host', 'address', 'region', 'platform', 'link', 'bracket', 'freq', 'count', 'until'].some(function (k) { return (full[k] || '') !== (old[k] || ''); });
   S.db.doc(baseOf(old) + 'series/' + old.id).set(full).then(function () {
     resetNightForm(); closeSheet();
     toast('Recurring game updated');
@@ -1863,15 +1899,32 @@ function submitSeriesEdit() {
 }
 // "Only show the address to people who are in": the address moves to a separate, locked-down document.
 function hideAddress(doc) {
-  var on = $('nAddrIn').checked && !$('addrInRow').hidden && !!doc.address;
+  var on = $('nAddrIn').checked && !$('addrInRow').hidden && !!(doc.address || doc.link);
   doc.addrIn = on;
   if (!on) return null;
-  var hidden = { address: doc.address, lat: doc.lat, lng: doc.lng };
-  doc.address = ''; doc.lat = null; doc.lng = null;
+  var hidden = { address: doc.address, lat: doc.lat, lng: doc.lng, link: doc.link || '' };
+  doc.address = ''; doc.lat = null; doc.lng = null; doc.link = '';
   return hidden;
 }
 function updateAddrInUI() {
   $('addrInRow').hidden = S.mode === 'poll' || $('nRepeat').value !== 'none' || !!S.editingSeries;
+}
+// In person or online: online games have a platform and an optional game link instead of an area and address.
+function setWhere(w, keepPrivacy) {
+  S.where = w === 'online' ? 'online' : 'person';
+  var on = S.where === 'online';
+  document.querySelectorAll('#nWhereSeg button').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.where === S.where)); });
+  $('platformField').hidden = !on; $('linkField').hidden = !on;
+  $('regionField').hidden = on; $('placeField').hidden = on; $('addressField').hidden = on;
+  $('nRegion').required = !on;
+  $('addrInText').textContent = on ? 'Only show the game link to people who are in' : 'Only show the address to people who are in';
+  if (!keepPrivacy) $('nAddrIn').checked = on;
+}
+function formLink() {
+  var u = $('nLink').value.trim();
+  if (!u) return '';
+  if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
+  return u.replace(/^http:\/\//i, 'https://').slice(0, 300);
 }
 function formCommon() {
   var format = $('nFormat').value;
@@ -1879,9 +1932,10 @@ function formCommon() {
     title: $('nTitle').value.trim() || format + ' night',
     format: format,
     min: Math.min(12, Math.max(2, parseInt($('nMin').value, 10) || 4)),
-    place: $('nPlace').value.trim(), host: $('nHost').value.trim(),
-    address: $('nAddress').value.trim().slice(0, 120), lat: S.formPlace.lat, lng: S.formPlace.lng,
-    region: validRegion($('nRegion').value),
+    place: S.where === 'online' ? '' : $('nPlace').value.trim(), host: $('nHost').value.trim(),
+    address: S.where === 'online' ? '' : $('nAddress').value.trim().slice(0, 120), lat: S.formPlace.lat, lng: S.formPlace.lng,
+    region: S.where === 'online' ? 'Online' : validRegion($('nRegion').value),
+    online: S.where === 'online', platform: S.where === 'online' ? validPlatform($('nPlatform').value) : '', link: S.where === 'online' ? formLink() : '',
     bracket: hasBrackets(format) ? Math.min(4, Math.max(0, parseInt($('nBracket').value, 10) || 0)) : 0,
     podIds: Array.from(S.formPods), note: $('nNote').value.trim()
   };
@@ -1963,6 +2017,13 @@ function copyText(text) {
 function wireForms() {
   FORMATS.forEach(function (f) { $('nFormat').append(h('option', { value: f, text: f })); });
   REGIONS.forEach(function (r) { $('nRegion').append(h('option', { value: r, text: r })); $('fRegion').append(h('option', { value: r, text: r })); });
+  $('fRegion').append(h('option', { value: 'Online', text: 'Online' }));
+  PLATFORMS.forEach(function (x) { $('nPlatform').append(h('option', { value: x[0], text: x[0] })); });
+  document.querySelectorAll('#nWhereSeg button').forEach(function (b) { b.addEventListener('click', function () { if (b.dataset.where !== S.where) setWhere(b.dataset.where); }); });
+  NAME_FIELDS.forEach(function (f) {
+    $('namesGrid').append(h('div', { class: 'field' }, h('label', { 'for': 'nm_' + f[0], text: f[1] }),
+      h('input', { id: 'nm_' + f[0], type: 'text', maxlength: '40', autocomplete: 'off', spellcheck: 'false', placeholder: f[2] })));
+  });
   $('fRegion').addEventListener('change', function (e) { S.f.region = validRegion(e.target.value); renderFilter(); renderPolls(); renderNights(); });
   resetNightForm();
   $('callBtn').addEventListener('click', function () {
@@ -2048,6 +2109,9 @@ function wireForms() {
     lookup.then(function (g) {
       saveMe(function (c) {
         c.nick = v; if (ci) c.ci = ci; else delete c.ci;
+        var nm = {};
+        NAME_FIELDS.forEach(function (f) { var x = $('nm_' + f[0]).value.trim().slice(0, 40); if (x) nm[f[0]] = x; });
+        if (Object.keys(nm).length) c.names = nm; else delete c.names;
         if (area && g) { c.area = area; c.alat = roundTo(g.lat, 2); c.alng = roundTo(g.lng, 2); }
         else if (area && same) { c.area = area; }
         else { delete c.area; delete c.alat; delete c.alng; if (area) c.area = area; }
@@ -2062,8 +2126,9 @@ function wireForms() {
     if (!canWrite() || S.placeBusy) return;
     var old = S.editingSeries ? seriesById(S.editingSeries) : S.editing ? S.nights.filter(function (x) { return x.id === S.editing; })[0] : null;
     var btn = $('nightSubmit'), label = btn.textContent;
-    var address = $('nAddress').value.trim().slice(0, 120);
-    try { if (validRegion($('nRegion').value)) localStorage.setItem('pp.region', $('nRegion').value); } catch (e) {}
+    var address = S.where === 'online' ? '' : $('nAddress').value.trim().slice(0, 120);
+    if (S.where === 'online' && formLink() && !safeLink(formLink())) { toast("That game link doesn't look right. Copy it from the game's page."); return; }
+    try { if (S.where !== 'online' && REGIONS.indexOf($('nRegion').value) >= 0) localStorage.setItem('pp.region', $('nRegion').value); } catch (e) {}
     S.placeBusy = true;
     if (address && !(old && old.address === address)) { btn.disabled = true; btn.textContent = 'Finding the address…'; }
     resolvePlace(address, old).then(function (pl) {
