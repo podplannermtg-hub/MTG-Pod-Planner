@@ -555,7 +555,9 @@ function details(n, podMap) {
 }
 const REGIONS = ['Upper Bucks', 'Central Bucks', 'Lower Bucks', 'MontCo', 'North Jersey', 'South Jersey'];
 function whenLine(n) {
-  return fmtDate(n.date) + (n.time ? ' at ' + fmtTime(n.time) : '') + (n.place ? ', ' + n.place : '') + (REGIONS.includes(n.region) ? ' (' + n.region + ')' : '');
+  const where = n.online ? ', online' + (n.platform ? ' (' + n.platform + ')' : '')
+    : (n.place ? ', ' + n.place : '') + (REGIONS.includes(n.region) ? ' (' + n.region + ')' : '');
+  return fmtDate(n.date) + (n.time ? ' at ' + fmtTime(n.time) : '') + where;
 }
 function fmtDate(ymd) {
   const [y, m, d] = String(ymd).split('-').map(Number);

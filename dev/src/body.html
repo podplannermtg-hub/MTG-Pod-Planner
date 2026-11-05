@@ -44,6 +44,11 @@
       <input id="area" type="text" maxlength="60" autocomplete="off" placeholder="Doylestown, PA or 18901">
       <p class="hint fine">A city and state, or a ZIP code, never your street. Games show roughly how far away they are. <button type="button" class="link" id="hereBtn">Use where I am right now</button> <span id="hereNote"></span> <span class="osm">Map search by <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap</a></span></p>
     </div>
+    <details class="usernames" id="namesBox">
+      <summary>Online usernames <span class="optl">optional</span></summary>
+      <p class="hint fine">For online games. People who are in the same game see the username for that game's platform, so you can add each other quickly.</p>
+      <div class="grid" id="namesGrid"></div>
+    </details>
     <div id="discordProfile" class="stackbox" hidden>
       <span class="sublabel">Discord</span>
       <div class="row" id="discordLinkRow"></div>
@@ -267,12 +272,20 @@
       <select id="nBracket"><option value="0">Any bracket</option><option value="1">1 or lower</option><option value="2">2 or lower</option><option value="3">3 or lower</option><option value="4">4 or lower</option></select></div>
   </div>
   <div class="grid">
-    <div class="field"><label for="nRegion">Area</label><select id="nRegion" required><option value="">Choose an area</option></select></div>
-    <div class="field"><label for="nPlace">Where</label><input id="nPlace" type="text" maxlength="80" placeholder="Dan's place, or the shop"></div>
+    <div class="field wide"><span class="sublabel">Where you'll play</span>
+      <div class="seg" id="nWhereSeg" role="group" aria-label="In person or online">
+        <button type="button" data-where="person" aria-pressed="true">In person</button>
+        <button type="button" data-where="online" aria-pressed="false">Online</button>
+      </div></div>
+    <div class="field" id="platformField" hidden><label for="nPlatform">Platform</label><select id="nPlatform"></select></div>
+    <div class="field wide" id="linkField" hidden><label for="nLink">Game link <span class="optl">optional</span></label><input id="nLink" type="text" inputmode="url" maxlength="300" autocomplete="off" placeholder="https://spelltable.wizards.com/game/…">
+      <p class="hint fine">A SpellTable game, a Discord voice channel, or anything people should open to join. Shown in the app only, not in Discord.</p></div>
+    <div class="field" id="regionField"><label for="nRegion">Area</label><select id="nRegion" required><option value="">Choose an area</option></select></div>
+    <div class="field" id="placeField"><label for="nPlace">Where</label><input id="nPlace" type="text" maxlength="80" placeholder="Dan's place, or the shop"></div>
     <div class="field"><label for="nHost">Host</label><input id="nHost" type="text" maxlength="40" placeholder="Dan"></div>
-    <div class="field wide"><label for="nAddress">Address <span class="optl">optional</span></label><input id="nAddress" type="text" maxlength="120" autocomplete="off" placeholder="123 Main St, Doylestown, PA">
-      <label class="check" id="addrInRow"><input type="checkbox" id="nAddrIn"><span>Only show the address to people who are in</span></label>
+    <div class="field wide" id="addressField"><label for="nAddress">Address <span class="optl">optional</span></label><input id="nAddress" type="text" maxlength="120" autocomplete="off" placeholder="123 Main St, Doylestown, PA">
       <p class="hint fine">Shown in the app only, not in Discord. People can tap it for directions. For a home game, cross streets work too. <span class="osm">Map search by <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap</a></span></p></div>
+    <label class="check wide" id="addrInRow"><input type="checkbox" id="nAddrIn"><span id="addrInText">Only show the address to people who are in</span></label>
   </div>
   <fieldset class="field">
     <legend>Call these pods</legend>
