@@ -28,7 +28,7 @@ CSP = ("default-src 'self'; "
        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
        "font-src https://fonts.gstatic.com; "
        "img-src 'self' data: https://*.googleusercontent.com https://cards.scryfall.io; "
-       "connect-src 'self' https://*.googleapis.com https://www.gstatic.com https://discord.com https://discordapp.com https://*.workers.dev https://nominatim.openstreetmap.org https://api.scryfall.com; "
+       "connect-src 'self' https://*.googleapis.com https://www.gstatic.com https://discord.com https://discordapp.com https://*.workers.dev https://nominatim.openstreetmap.org https://photon.komoot.io https://api.scryfall.com; "
        "frame-src https://*.firebaseapp.com https://accounts.google.com https://apis.google.com; "
        "object-src 'none'; base-uri 'none'; form-action 'none'")
 

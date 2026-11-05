@@ -41,8 +41,9 @@
     </fieldset>
     <div class="field">
       <label for="area">Your area <span class="optl">optional</span></label>
-      <input id="area" type="text" maxlength="60" autocomplete="off" placeholder="Doylestown, PA or 18901">
-      <p class="hint fine">A city and state, or a ZIP code, never your street. Games show roughly how far away they are. <button type="button" class="link" id="hereBtn">Use where I am right now</button> <span id="hereNote"></span> <span class="osm">Map search by <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap</a></span></p>
+      <div class="suggestwrap"><input id="area" type="text" maxlength="60" autocomplete="off" spellcheck="false" placeholder="Doylestown, PA or 18901" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="areaList">
+      <ul id="areaList" class="suggest" role="listbox" aria-label="Matching towns" hidden></ul></div>
+      <p class="hint fine">A city and state, or a ZIP code, never your street. Games show roughly how far away they are. <button type="button" class="link" id="hereBtn">Use where I am right now</button> <span id="hereNote"></span> <span class="osm">Map data <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap</a>, suggestions by <a href="https://photon.komoot.io" target="_blank" rel="noopener">Photon</a></span></p>
     </div>
     <details class="usernames" id="namesBox">
       <summary>Online usernames <span class="optl">optional</span></summary>
@@ -283,8 +284,9 @@
     <div class="field" id="regionField"><label for="nRegion">Area</label><select id="nRegion" required><option value="">Choose an area</option></select></div>
     <div class="field" id="placeField"><label for="nPlace">Where</label><input id="nPlace" type="text" maxlength="80" placeholder="Dan's place, or the shop"></div>
     <div class="field"><label for="nHost">Host</label><input id="nHost" type="text" maxlength="40" placeholder="Dan"></div>
-    <div class="field wide" id="addressField"><label for="nAddress">Address <span class="optl">optional</span></label><input id="nAddress" type="text" maxlength="120" autocomplete="off" placeholder="123 Main St, Doylestown, PA">
-      <p class="hint fine">Shown in the app only, not in Discord. People can tap it for directions. For a home game, cross streets work too. <span class="osm">Map search by <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap</a></span></p></div>
+    <div class="field wide" id="addressField"><label for="nAddress">Address <span class="optl">optional</span></label><div class="suggestwrap"><input id="nAddress" type="text" maxlength="120" autocomplete="off" spellcheck="false" placeholder="Start typing a place or address" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="nAddressList">
+      <ul id="nAddressList" class="suggest" role="listbox" aria-label="Matching places" hidden></ul></div>
+      <p class="hint fine">Shown in the app only, not in Discord. People can tap it for directions. For a home game, cross streets work too. <span class="osm">Map data <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap</a>, suggestions by <a href="https://photon.komoot.io" target="_blank" rel="noopener">Photon</a></span></p></div>
     <label class="check wide" id="addrInRow"><input type="checkbox" id="nAddrIn"><span id="addrInText">Only show the address to people who are in</span></label>
   </div>
   <fieldset class="field">

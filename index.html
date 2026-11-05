@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.gstatic.com https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://*.googleusercontent.com https://cards.scryfall.io; connect-src 'self' https://*.googleapis.com https://www.gstatic.com https://discord.com https://discordapp.com https://*.workers.dev https://nominatim.openstreetmap.org https://api.scryfall.com; frame-src https://*.firebaseapp.com https://accounts.google.com https://apis.google.com; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.gstatic.com https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://*.googleusercontent.com https://cards.scryfall.io; connect-src 'self' https://*.googleapis.com https://www.gstatic.com https://discord.com https://discordapp.com https://*.workers.dev https://nominatim.openstreetmap.org https://photon.komoot.io https://api.scryfall.com; frame-src https://*.firebaseapp.com https://accounts.google.com https://apis.google.com; object-src 'none'; base-uri 'none'; form-action 'none'">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -478,6 +478,7 @@ details.usernames{border:1px solid var(--line);border-radius:10px;padding:10px 1
 details.usernames summary{cursor:pointer;font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
 details.usernames[open] summary{margin-bottom:8px}
 details.usernames .grid{margin-top:10px}
+.spin{flex:none;width:10px;height:10px;margin:0 4px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:var(--accent-text)}
 </style>
 </head>
 <body>
@@ -524,8 +525,9 @@ details.usernames .grid{margin-top:10px}
     </fieldset>
     <div class="field">
       <label for="area">Your area <span class="optl">optional</span></label>
-      <input id="area" type="text" maxlength="60" autocomplete="off" placeholder="Doylestown, PA or 18901">
-      <p class="hint fine">A city and state, or a ZIP code, never your street. Games show roughly how far away they are. <button type="button" class="link" id="hereBtn">Use where I am right now</button> <span id="hereNote"></span> <span class="osm">Map search by <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap</a></span></p>
+      <div class="suggestwrap"><input id="area" type="text" maxlength="60" autocomplete="off" spellcheck="false" placeholder="Doylestown, PA or 18901" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="areaList">
+      <ul id="areaList" class="suggest" role="listbox" aria-label="Matching towns" hidden></ul></div>
+      <p class="hint fine">A city and state, or a ZIP code, never your street. Games show roughly how far away they are. <button type="button" class="link" id="hereBtn">Use where I am right now</button> <span id="hereNote"></span> <span class="osm">Map data <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap</a>, suggestions by <a href="https://photon.komoot.io" target="_blank" rel="noopener">Photon</a></span></p>
     </div>
     <details class="usernames" id="namesBox">
       <summary>Online usernames <span class="optl">optional</span></summary>
@@ -766,8 +768,9 @@ details.usernames .grid{margin-top:10px}
     <div class="field" id="regionField"><label for="nRegion">Area</label><select id="nRegion" required><option value="">Choose an area</option></select></div>
     <div class="field" id="placeField"><label for="nPlace">Where</label><input id="nPlace" type="text" maxlength="80" placeholder="Dan's place, or the shop"></div>
     <div class="field"><label for="nHost">Host</label><input id="nHost" type="text" maxlength="40" placeholder="Dan"></div>
-    <div class="field wide" id="addressField"><label for="nAddress">Address <span class="optl">optional</span></label><input id="nAddress" type="text" maxlength="120" autocomplete="off" placeholder="123 Main St, Doylestown, PA">
-      <p class="hint fine">Shown in the app only, not in Discord. People can tap it for directions. For a home game, cross streets work too. <span class="osm">Map search by <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap</a></span></p></div>
+    <div class="field wide" id="addressField"><label for="nAddress">Address <span class="optl">optional</span></label><div class="suggestwrap"><input id="nAddress" type="text" maxlength="120" autocomplete="off" spellcheck="false" placeholder="Start typing a place or address" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="nAddressList">
+      <ul id="nAddressList" class="suggest" role="listbox" aria-label="Matching places" hidden></ul></div>
+      <p class="hint fine">Shown in the app only, not in Discord. People can tap it for directions. For a home game, cross streets work too. <span class="osm">Map data <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap</a>, suggestions by <a href="https://photon.komoot.io" target="_blank" rel="noopener">Photon</a></span></p></div>
     <label class="check wide" id="addrInRow"><input type="checkbox" id="nAddrIn"><span id="addrInText">Only show the address to people who are in</span></label>
   </div>
   <fieldset class="field">
@@ -785,7 +788,7 @@ details.usernames .grid{margin-top:10px}
 </form>
 <div id="toast" role="status" hidden></div>
 
-<script src="config.js?v=9707192709"></script>
-<script type="module" src="app.js?v=9707192709"></script>
+<script src="config.js?v=894d34b35b"></script>
+<script type="module" src="app.js?v=894d34b35b"></script>
 </body>
 </html>
