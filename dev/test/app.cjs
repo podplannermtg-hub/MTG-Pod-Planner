@@ -997,6 +997,26 @@ const calls = (page) => page.evaluate(() => window.__calls);
     await page.context().close();
   }
 
+  /* ===== the band picks the soonest game you haven't turned down ===== */
+  {
+    const seed = baseSeed();
+    seed.nights = {}; seed.series = {};
+    seed.people.me1 = { nick: 'Rob', pods: ['p1'], res: { soon: 'maybe', later: 'yes', first: 'no' } };
+    seed.nights.first = { title: 'Declined Game', date: plus(1), time: '19:00', format: 'Commander', min: 4, podIds: ['p1'], by: 'x', at: 1 };
+    seed.nights.soon = { title: 'Maybe Game', date: plus(3), time: '16:00', format: 'Commander', min: 8, podIds: ['p1'], by: 'x', at: 1, address: '100 Main St' };
+    seed.nights.later = { title: 'Yes Game', date: plus(8), time: '18:00', format: 'Commander', min: 4, podIds: ['p1'], by: 'x', at: 1 };
+    const { page, errors } = await open(browser, { state: 'ok', uid: 'me1', email: 'me@example.com', isAdmin: false }, seed, {}, { width: 1280, height: 900 });
+    await page.waitForSelector('#hero .htitle');
+    check('band: soonest game wins over a later one you\'re in', (await page.locator('#hero .htitle').textContent()) === 'Maybe Game', await page.locator('#hero .htitle').textContent());
+    check('band: says you said maybe, with Maybe pressed', (await page.locator('#hero .hlbl').textContent()).includes('you said maybe')
+      && (await page.locator('#hero .hb[aria-pressed="true"]').innerText()) === 'Maybe' && await page.locator('#hero a.hb', { hasText: 'Directions' }).isVisible());
+    await page.locator('#hero .hb', { hasText: "Can't" }).click();
+    await page.waitForTimeout(800);
+    check('band: turning it down moves on to the next game', (await page.locator('#hero .htitle').textContent()) === 'Yes Game', [await page.locator('#hero .htitle').textContent(), await page.evaluate(() => JSON.stringify(window.__store.people.me1.res)), errors]);
+    check('band: no errors', errors.length === 0, errors);
+    await page.context().close();
+  }
+
   /* ===== phone layout: tabs, compact cards, the sheet ===== */
   {
     const seed = baseSeed();
