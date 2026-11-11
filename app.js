@@ -447,6 +447,63 @@ function commanderArt(name) {
 // Commander type-ahead: as you type, Scryfall suggests legal commanders (most played first).
 var cmdSeq = 0, cmdCache = {}, cmdTimer = null;
 function commanderSearch(q) { return cardSearch('is:commander ' + q); }
+// Every artwork a card has had (each set, Secret Lair drops, promos), newest first.
+var artCache = {};
+function artVersions(name) {
+  name = String(name || '').trim();
+  if (!name || typeof fetch !== 'function') return Promise.resolve([]);
+  if (artCache[name]) return Promise.resolve(artCache[name]);
+  var url = 'https://api.scryfall.com/cards/search?unique=art&order=released&include_extras=true&q=' + encodeURIComponent('!"' + name.replace(/"/g, '') + '"');
+  return fetch(url, { headers: { Accept: 'application/json' } })
+    .then(function (r) { return r.ok ? r.json() : { data: [] }; })
+    .then(function (j) {
+      var seen = {}, list = [];
+      (j.data || []).forEach(function (c) {
+        var face = c.card_faces && c.card_faces[0] ? c.card_faces[0] : {};
+        var iu = c.image_uris || face.image_uris || {}, art = safeArt(iu.art_crop);
+        if (!art || seen[art] || list.length >= 60) return;
+        seen[art] = 1;
+        list.push({ name: String(c.name || name).slice(0, 80), art: art, artist: String(c.artist || face.artist || '').slice(0, 60),
+          set: String(c.set_name || '').slice(0, 60), year: String(c.released_at || '').slice(0, 4) });
+      });
+      artCache[name] = list;
+      return list;
+    }).catch(function () { return []; });
+}
+// The art picker under a card name: shows which art you have and opens a grid of every version.
+// o: { box, get: () => current {name, art, artist} or null, set: (choice) => void }
+function sameArt(a, b) { return !!a && !!b && String(a).split('?')[0] === String(b).split('?')[0]; }
+function artPicker(o) {
+  var box = $(o.box); if (!box) return function () {};
+  var open = false, token = 0;
+  function render() {
+    var cur = o.get(); box.replaceChildren();
+    box.hidden = !(cur && cur.name);
+    if (box.hidden) { open = false; return; }
+    var my = ++token;
+    var label = h('span', { class: 'artnow', text: 'Art: checking versions…' });
+    var btn = h('button', { type: 'button', class: 'link artmore', 'aria-expanded': String(open), onclick: function () { open = !open; render(); } }, open ? 'Done' : 'Choose a different art');
+    box.append(h('div', { class: 'arthead' }, label, btn));
+    var grid = h('div', { class: 'artgrid', role: 'group', 'aria-label': 'Versions of ' + cur.name, hidden: !open });
+    box.append(grid);
+    artVersions(cur.name).then(function (list) {
+      if (my !== token) return;
+      var mine = list.filter(function (v) { return sameArt(v.art, cur.art); })[0];
+      if (!list.length) { label.textContent = 'Art: Scryfall'; btn.hidden = true; return; }
+      label.textContent = mine ? 'Art: ' + mine.set + (mine.year ? ' (' + mine.year + ')' : '') + (mine.artist ? ' · ' + mine.artist : '')
+        : list.length + (list.length === 1 ? ' version' : ' versions');
+      btn.hidden = list.length < 2 && !!mine;
+      if (!btn.hidden && !open) btn.textContent = list.length > 1 ? 'Choose from ' + list.length + ' versions' : 'Choose art';
+      list.forEach(function (v) {
+        var im = h('img', { src: v.art, alt: '', loading: 'lazy', width: '626', height: '457' });
+        grid.append(h('button', { type: 'button', class: 'artopt', 'aria-pressed': String(sameArt(v.art, cur.art)), title: v.set + (v.artist ? ' · ' + v.artist : ''),
+          onclick: function () { o.set({ name: v.name, art: v.art, artist: v.artist }); open = false; render(); } },
+          im, h('span', null, h('b', { text: v.set || 'Unknown set' }), h('small', { text: [v.year, v.artist].filter(Boolean).join(' · ') }))));
+      });
+    });
+  }
+  return render;
+}
 // Any card, most played first. Used for commanders and for the picture on your profile.
 function cardSearch(q) {
   if (cmdCache[q]) return Promise.resolve(cmdCache[q]);
@@ -492,9 +549,11 @@ function pickCommander(c) {
   $('dCmd').value = c.name;
   S.deckPick = c;
   cmdList(false);
+  if (S.deckArt) S.deckArt();
 }
 function onCmdInput() {
   S.deckPick = null;
+  if (S.deckArt) S.deckArt();
   var q = $('dCmd').value.trim();
   clearTimeout(cmdTimer);
   if (q.length < 2) { cmdList(false); return; }
@@ -532,6 +591,8 @@ function openDeckForm(d) {
   $('dBracket').value = String(d ? (d.b || 0) : 0); $('dUrl').value = d ? (d.url || '') : '';
   $('deckDelete').hidden = !d; $('deckDelete').textContent = 'Remove deck';
   $('deckSave').textContent = d ? 'Save deck' : 'Add deck';
+  S.deckPick = d && d.cmd && d.art ? { name: d.cmd, art: d.art, artist: d.artist || '' } : null;
+  if (S.deckArt) S.deckArt();
   $('deckForm').hidden = false; $('dName').focus();
 }
 function closeDeckForm() { $('deckForm').hidden = true; S.deckEdit = null; }
@@ -544,11 +605,11 @@ function submitDeck() {
   if (url && !safeLink(url)) { toast("That link doesn't look right. Copy it from the deck's page."); return; }
   var cmd = $('dCmd').value.trim().slice(0, 80), b = Math.min(5, Math.max(0, parseInt($('dBracket').value, 10) || 0));
   var old = S.deckEdit ? deckList(me()).filter(function (x) { return x.id === S.deckEdit; })[0] : null;
-  var same = old && (old.cmd || '') === cmd && (old.art || !cmd);
+  var picked = S.deckPick && S.deckPick.name === cmd && S.deckPick.art ? S.deckPick : null;
+  var same = !picked && old && (old.cmd || '') === cmd && (old.art || !cmd);
   var btn = $('deckSave'), label = btn.textContent;
   S.deckBusy = true;
   if (cmd && !same) { btn.disabled = true; btn.textContent = 'Finding the commander…'; }
-  var picked = S.deckPick && S.deckPick.name === cmd && S.deckPick.art ? S.deckPick : null;
   (same ? Promise.resolve(old.art ? { name: old.cmd, art: old.art, artist: old.artist } : null) : picked ? Promise.resolve(picked) : commanderArt(cmd)).then(function (c) {
     S.deckBusy = false; btn.disabled = false; btn.textContent = label;
     var d = { id: old ? old.id : makeId(), name: name, b: b };
@@ -820,8 +881,11 @@ function useHere() {
 function fillNick() {
   $('nick').value = (me() && me().nick) || S.profileName || '';
   $('area').value = (me() && me().area) || '';
-  S.avPick = null; $('avCmd').value = (me() && me().av && me().av.name) || '';
-  renderAvPrev(me() && me().av);
+  var av = me() && me().av;
+  S.avPick = av && av.art ? { name: av.name, art: av.art, artist: av.artist || '' } : null;
+  $('avCmd').value = (av && av.name) || '';
+  renderAvPrev(av);
+  if (S.avArt) S.avArt();
   var names = (me() && me().names) || {};
   NAME_FIELDS.forEach(function (f) { var el = $('nm_' + f[0]); if (el) el.value = names[f[0]] || ''; });
   $('namesBox').open = NAME_FIELDS.some(function (f) { return names[f[0]]; });
@@ -2509,8 +2573,10 @@ function wireForms() {
   applyTheme();
   suggestBox({ input: 'avCmd', list: 'avList', min: 3, search: cardSearch,
     view: function (it) { return { title: it.name, sub: it.type }; },
-    typed: function () { S.avPick = null; },
-    pick: function (it) { S.avPick = it; $('avCmd').value = it.name; renderAvPrev(it); } });
+    typed: function () { S.avPick = null; S.avArt(); },
+    pick: function (it) { S.avPick = it; $('avCmd').value = it.name; renderAvPrev(it); S.avArt(); } });
+  S.avArt = artPicker({ box: 'avArt', get: function () { return S.avPick; }, set: function (v) { S.avPick = v; renderAvPrev(v); } });
+  S.deckArt = artPicker({ box: 'dArt', get: function () { return S.deckPick; }, set: function (v) { S.deckPick = v; } });
   $('avCmd').addEventListener('input', function () { if (!$('avCmd').value.trim()) renderAvPrev(null); });
   renderCardsSeg();
   $('nightCancel').addEventListener('click', function () { resetNightForm(); closeSheet(); });

@@ -46,6 +46,7 @@
       <div class="avrow"><span class="dart av" id="avPrev" aria-hidden="true"></span>
         <div class="suggestwrap grow"><input id="avCmd" type="text" maxlength="80" autocomplete="off" spellcheck="false" placeholder="Any card: start typing a name" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="avList">
         <ul id="avList" class="suggest" role="listbox" aria-label="Matching cards" hidden></ul></div></div>
+      <div id="avArt" class="artpick" hidden></div>
       <p class="hint fine">A Magic card's art becomes your picture in the seats and next to your name. Your seat shows the deck you're bringing when you've picked one.</p>
     </div>
     <div class="field">
@@ -78,6 +79,7 @@
         <div class="field wide suggestwrap"><label for="dCmd">Commander <span class="optl">optional</span></label>
           <input id="dCmd" type="text" maxlength="80" autocomplete="off" spellcheck="false" placeholder="Start typing: atraxa" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="dCmdList">
           <ul id="dCmdList" class="suggest" role="listbox" aria-label="Matching commanders" hidden></ul></div>
+        <div id="dArt" class="artpick wide" hidden></div>
         <div class="field"><label for="dBracket">Bracket <span class="optl">Commander only</span></label>
           <select id="dBracket"><option value="0">Not set</option><option value="1">1 · Exhibition</option><option value="2">2 · Core</option><option value="3">3 · Upgraded</option><option value="4">4 · Optimized</option><option value="5">5 · cEDH</option></select></div>
         <div class="field wide"><label for="dUrl">Link <span class="optl">optional</span></label><input id="dUrl" type="text" inputmode="url" maxlength="200" autocomplete="off" placeholder="https://moxfield.com/decks/…"></div>

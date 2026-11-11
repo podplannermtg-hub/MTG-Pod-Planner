@@ -589,6 +589,19 @@ details.usernames .grid{margin-top:10px}
 .avrow{display:flex;gap:12px;align-items:center}
 .dart.av{width:52px;height:52px;font-size:20px;color:var(--ink);background-color:var(--surface-2)}
 .me-btn .dart.sm{box-shadow:0 0 0 1px color-mix(in srgb,var(--band-ink) 40%,transparent);margin:-3px 0 -3px -4px}
+
+/* Art picker: every version of a card, to choose the art you like */
+.artpick{display:flex;flex-direction:column;gap:8px;margin-top:2px}
+.arthead{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;font-size:13px;color:var(--muted)}
+.artnow{min-width:0;overflow-wrap:anywhere}
+.artmore{padding:6px 2px;min-height:32px}
+.artgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:8px;max-height:min(60vh,460px);overflow-y:auto;padding:2px;overscroll-behavior:contain}
+.artopt{display:flex;flex-direction:column;gap:4px;padding:4px;border:1px solid var(--line);border-radius:10px;background:var(--bg);text-align:left;min-width:0}
+.artopt img{display:block;width:100%;height:auto;aspect-ratio:626/457;object-fit:cover;border-radius:7px;background:var(--surface-2)}
+.artopt span{display:flex;flex-direction:column;min-width:0;padding:0 2px 2px}
+.artopt b{font-size:12px;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.artopt small{font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.artopt[aria-pressed=true]{border-color:var(--accent-text);box-shadow:inset 0 0 0 2px var(--accent-text)}
 </style>
 </head>
 <body>
@@ -640,6 +653,7 @@ details.usernames .grid{margin-top:10px}
       <div class="avrow"><span class="dart av" id="avPrev" aria-hidden="true"></span>
         <div class="suggestwrap grow"><input id="avCmd" type="text" maxlength="80" autocomplete="off" spellcheck="false" placeholder="Any card: start typing a name" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="avList">
         <ul id="avList" class="suggest" role="listbox" aria-label="Matching cards" hidden></ul></div></div>
+      <div id="avArt" class="artpick" hidden></div>
       <p class="hint fine">A Magic card's art becomes your picture in the seats and next to your name. Your seat shows the deck you're bringing when you've picked one.</p>
     </div>
     <div class="field">
@@ -672,6 +686,7 @@ details.usernames .grid{margin-top:10px}
         <div class="field wide suggestwrap"><label for="dCmd">Commander <span class="optl">optional</span></label>
           <input id="dCmd" type="text" maxlength="80" autocomplete="off" spellcheck="false" placeholder="Start typing: atraxa" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="dCmdList">
           <ul id="dCmdList" class="suggest" role="listbox" aria-label="Matching commanders" hidden></ul></div>
+        <div id="dArt" class="artpick wide" hidden></div>
         <div class="field"><label for="dBracket">Bracket <span class="optl">Commander only</span></label>
           <select id="dBracket"><option value="0">Not set</option><option value="1">1 · Exhibition</option><option value="2">2 · Core</option><option value="3">3 · Upgraded</option><option value="4">4 · Optimized</option><option value="5">5 · cEDH</option></select></div>
         <div class="field wide"><label for="dUrl">Link <span class="optl">optional</span></label><input id="dUrl" type="text" inputmode="url" maxlength="200" autocomplete="off" placeholder="https://moxfield.com/decks/…"></div>
@@ -937,7 +952,7 @@ details.usernames .grid{margin-top:10px}
 </form>
 <div id="toast" role="status" hidden></div>
 
-<script src="config.js?v=c3e2e827ff"></script>
-<script type="module" src="app.js?v=c3e2e827ff"></script>
+<script src="config.js?v=276eff5a15"></script>
+<script type="module" src="app.js?v=276eff5a15"></script>
 </body>
 </html>
