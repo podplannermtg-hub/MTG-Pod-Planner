@@ -134,7 +134,7 @@
       <h2 id="podsH">Pods</h2>
       <button class="ghost" type="button" id="addPodBtn">New pod</button>
     </div>
-    <p class="hint">Tap a pod to join or leave it. Games called for a pod show who in it hasn't answered yet. Private pods only show up for their members.</p>
+    <p class="hint">Join the pods you play with. Games called for a pod show who in it hasn't answered yet. Private pods only show up for their members.</p>
     <form id="podForm" class="panel" hidden>
       <h2 id="podFormH">New pod</h2>
       <div class="field">
@@ -178,7 +178,7 @@
         <button class="link danger" type="button" id="podDelete" hidden>Remove pod</button>
       </div>
     </form>
-    <div id="pods" class="chips"></div>
+    <div id="pods" class="podlist"></div>
     <div id="invites" class="list"></div>
     <div id="inviteBox" hidden>
       <button class="link" type="button" id="inviteOpen">Invite someone to a pod</button>
@@ -226,6 +226,11 @@
       <div id="past"></div>
     </details>
     </div>
+    <aside id="rail" class="rail" aria-label="At a glance">
+      <section id="railWho" class="railsec"></section>
+      <section id="railPods" class="railsec"></section>
+      <section id="railDecks" class="railsec"></section>
+    </aside>
   </section>
 
   <section id="membersSec" class="strip view" aria-labelledby="membersH" hidden>

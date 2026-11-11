@@ -86,7 +86,7 @@ const probe = () => {
         if (scenario === 'signin') await page.waitForSelector('#googleBtn');
         else await page.waitForSelector('article.night', { state: 'attached' });
         if (scenario === 'nameform') { await page.click('.me-btn'); await page.waitForSelector('#nickForm:visible'); }
-        if (scenario === 'podform') { await page.click('#tabs button[data-tab=pods]'); await page.locator('.chipwrap', { hasText: 'Friday Night' }).locator('button.podedit').click(); await page.click('#inviteOpen'); }
+        if (scenario === 'podform') { await page.click('#tabs button[data-tab=pods]'); await page.locator('.podcard', { hasText: 'Friday Night' }).locator('button.podedit').click(); await page.click('#inviteOpen'); }
         if (scenario === 'sheet') { await page.click('#callBtn'); await page.waitForSelector('#nightForm:visible'); }
         if (scenario === 'tools') { await page.click('#tabs button[data-tab=organizer]'); await page.waitForSelector('#membersSec:not([hidden]) #requests .mrow'); await page.locator('#membersSec').scrollIntoViewIfNeeded(); }
         const issues = await page.evaluate(probe);

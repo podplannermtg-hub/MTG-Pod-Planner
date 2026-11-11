@@ -1474,20 +1474,58 @@ function renderPods() {
     box.append(h('p', { class: 'hint', text: 'No pods yet. Add the groups you play with, like Tuesday Commander or the shop draft crew.' }));
     return;
   }
-  var mine = new Set((me() && me().pods) || []);
-  podsSorted().forEach(function (p) {
-    var on = mine.has(p.id);
-    var chip = h('button', {
-      type: 'button', class: 'chip' + (on ? ' on' : ''), 'aria-pressed': String(on), disabled: !canWrite(),
-      title: on ? 'You play in this pod. Tap to leave.' : 'Tap to join this pod.',
-      onclick: function () { togglePod(p.id); }
-    }, h('i', { class: 'dot m-' + p.mana }), p.name, p.private ? h('span', { class: 'badge priv', text: 'private' }) : p.join === 'invite' ? h('span', { class: 'badge', text: 'invite' }) : null, h('span', { class: 'count', text: String(memberCount(p.id)) }), on ? h('span', { class: 'chk', 'aria-hidden': 'true', text: '✓' }) : null);
-    var wrap = h('span', { class: 'chipwrap' }, chip);
-    if (canWrite() && mineId(p.by)) {
-      wrap.append(h('button', { type: 'button', class: 'link podedit', 'aria-label': 'Edit pod ' + p.name, onclick: function () { openPodForm(p); } }, 'Edit'));
-    }
-    box.append(wrap);
+  var mine = new Set((me() && me().pods) || []), pm = podById();
+  var upcoming = groupNights(upcomingNights()).map(function (g) { return g.items[0]; });
+  var yours = podsSorted().filter(function (p) { return mine.has(p.id); }), others = podsSorted().filter(function (p) { return !mine.has(p.id); });
+  [['Your pods', yours], ['Other pods', others]].forEach(function (sec) {
+    if (!sec[1].length) return;
+    box.append(h('h3', { class: 'grouphead podhead', text: sec[0] }));
+    var grid = h('div', { class: 'podgrid' });
+    sec[1].forEach(function (p) { grid.append(podCard(p, mine.has(p.id), upcoming, pm)); });
+    box.append(grid);
   });
+}
+// One pod as a small card: its banner, who's in it, its next game, and what you can do.
+function podCard(p, on, upcoming, pm) {
+  var f = frameFor({ podIds: [p.id] }, pm);
+  var members = livePeople().filter(function (x) { return x.nick && x.pods && x.pods.indexOf(p.id) >= 0; }).sort(function (a, b) { return a.nick.localeCompare(b.nick); });
+  var games = upcoming.filter(function (n) { return (n.podIds || []).indexOf(p.id) >= 0; });
+  var next = games[0];
+  var kind = p.private ? 'Private' : p.join === 'invite' ? 'Invite only' : 'Open to join';
+  var faces = h('div', { class: 'podfaces' }, members.slice(0, 10).map(function (x) { return faceDot(x, null); }),
+    members.length > 10 ? h('span', { class: 'face facemore', text: '+' + (members.length - 10) }) : null);
+  var names = members.length ? members.map(function (x) { return x.nick; }).join(', ') : 'Nobody yet';
+  var banner = h('div', { class: f.art + ' podban' },
+    h('div', { class: 'artrow' }, h('span', { class: 'timechip', text: members.length + (members.length === 1 ? ' member' : ' members') }),
+      h('span', { class: 'pill short podkind', text: kind })),
+    members.length ? faces : null);
+  var nextRow = next
+    ? h('button', { type: 'button', class: 'podnext', onclick: function () { setTab('games'); showCard(next); } },
+        h('span', { class: 'sublabel', text: 'Next game' }), h('b', { text: next.title }), h('small', { text: fmtWhen(next.date, next.time) + (games.length > 1 ? ' · ' + (games.length - 1) + ' more coming up' : '') }))
+    : h('div', { class: 'podnext none' }, h('span', { class: 'sublabel', text: 'Next game' }), h('small', { text: 'Nothing on the calendar' }));
+  var acts = h('div', { class: 'podacts' });
+  if (canWrite()) {
+    if (on) {
+      if (myPods().indexOf(p.id) >= 0 && invitablePods().some(function (x) { return x.id === p.id; }))
+        acts.append(h('button', { type: 'button', class: 'ghost small', onclick: function () { openInviteFor(p.id); } }, 'Invite someone'));
+      acts.append(h('button', { type: 'button', class: 'ghost small podjoin', 'aria-pressed': 'true', onclick: function () { togglePod(p.id); } }, S.confirm === 'leave:' + p.id ? 'Tap again to leave' : 'Leave'));
+    } else if (canJoinPod(p)) acts.append(h('button', { type: 'button', class: 'primary small podjoin', 'aria-pressed': 'false', onclick: function () { togglePod(p.id); } }, 'Join'));
+    else acts.append(h('button', { type: 'button', class: 'ghost small podjoin', 'aria-pressed': 'false', onclick: function () { togglePod(p.id); } }, 'Invite only'));
+    if (mineId(p.by)) acts.append(h('button', { type: 'button', class: 'link podedit', 'aria-label': 'Edit pod ' + p.name, onclick: function () { openPodForm(p); } }, 'Edit'));
+  }
+  return h('article', { class: 'card podcard ' + f.frame + (on ? ' mine' : ''), 'data-pod': p.id },
+    h('div', { class: 'card-in' },
+      h('div', { class: 'titlebar' }, h('h3', { text: p.name }), on ? h('span', { class: 'cost podin', text: 'You\'re in' }) : null),
+      banner,
+      h('div', { class: 'typeline' }, h('span', { class: 'podnames', text: names })),
+      h('div', { class: 'textbox' }, nextRow, acts)));
+}
+function openInviteFor(podId) {
+  $('inviteBox').hidden = false;
+  var f = $('inviteForm'); f.hidden = false; fillInviteSelects();
+  $('invPod').value = podId; fillInviteSelects();
+  f.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  $('invWho').focus({ preventScroll: true });
 }
 // A private pod's game is only for that pod, so picking one clears the others (and the reverse).
 // While editing, a game stays where it is: public games can't be moved into a private pod or back.
@@ -1841,7 +1879,7 @@ function renderNights() {
       box.append(h('h3', { class: 'grouphead' + (i === 0 ? ' needs' : ''), text: sec[0] }));
       sec[1].forEach(function (g) { box.append(nightCard(selectedIn(g), pm, g, i === 0 ? true : null)); });
     });
-    renderWeek(shown, pm); renderHero(pm);
+    renderWeek(shown, pm); renderHero(pm); renderRail(shown, pm);
 
     var past = pastNights().sort(function (x, y) { return (y.date + (y.time || '')).localeCompare(x.date + (x.time || '')); });
     var pw = $('pastWrap'), pb = $('past'); pb.replaceChildren();
@@ -1987,6 +2025,53 @@ function heroTable(n, seats, min) {
   }
   return tbl;
 }
+/* ---------- the right-hand column on wide screens ----------
+   Who's in this week, your pods and your decks. Hidden below 1600px. */
+function faceDot(p, n) {
+  var ds = n ? decksFor(p, n) : [], d = ds[0], art = (d ? safeArt(d.art) : '') || avatarArt(p);
+  var el = h('span', { class: 'face' + (art ? ' hasart' : ''), title: p.nick, text: art ? '' : initial(p.nick) });
+  if (art) el.style.backgroundImage = 'url("' + art + '")';
+  return el;
+}
+function renderRail(shown, pm) {
+  if (!$('rail')) return;
+  var today = todayStr(), week = addDaysYmd(today, 7);
+  // Who's in this week
+  var who = $('railWho'); who.replaceChildren(h('h3', { text: "Who's in this week" }));
+  var games = []; shown.forEach(function (g) { g.items.forEach(function (n) { if (n.date < week) games.push(n); }); });
+  games.sort(function (a, b) { return (a.date + (a.time || '')).localeCompare(b.date + (b.time || '')); });
+  var any = false;
+  games.forEach(function (n) {
+    var c = tally(n, pm); if (!c.yes.length && !c.maybe.length) return; any = true;
+    var faces = h('span', { class: 'faces' }, c.yes.slice(0, 8).map(function (p) { return faceDot(p, n); }), c.maybe.slice(0, 4).map(function (p) { var f = faceDot(p, n); f.classList.add('maybe'); return f; }));
+    who.append(h('button', { type: 'button', class: 'whorow', onclick: function () { showCard(n); } },
+      h('span', { class: 'whot' }, h('b', { text: n.title }), h('small', { text: fmtWhen(n.date, n.time) + ' · ' + c.yes.length + ' in' + (c.maybe.length ? ', ' + c.maybe.length + ' maybe' : '') })), faces));
+  });
+  if (!any) who.append(h('p', { class: 'hint', text: 'Nobody has said they\'re in to anything this week yet.' }));
+  // Your pods
+  var pods = $('railPods'), mine = myPods(); pods.replaceChildren(h('h3', null, 'Your pods', h('button', { type: 'button', class: 'link', onclick: function () { setTab('pods'); } }, 'All pods')));
+  var inv = myInvites().length + approvals().length;
+  if (inv) pods.append(h('button', { type: 'button', class: 'railnote', onclick: function () { setTab('pods'); } }, inv === 1 ? '1 pod invite waiting' : inv + ' pod invites waiting'));
+  var list = podsSorted().filter(function (p) { return mine.indexOf(p.id) >= 0; });
+  if (!list.length) pods.append(h('p', { class: 'hint', text: 'You\'re not in any pods yet.' }));
+  list.forEach(function (p) {
+    var next = upcomingNights().filter(function (n) { return (n.podIds || []).indexOf(p.id) >= 0; }).sort(function (a, b) { return (a.date + (a.time || '')).localeCompare(b.date + (b.time || '')); })[0];
+    pods.append(h('div', { class: 'podrow' }, h('i', { class: 'dot m-' + (p.mana || 'C') }),
+      h('span', { class: 'whot' }, h('b', null, p.name, p.private ? h('span', { class: 'badge priv', text: 'private' }) : null),
+        h('small', { text: memberCount(p.id) + (memberCount(p.id) === 1 ? ' member' : ' members') + (next ? ' · next ' + fmtWhen(next.date, '') : '') }))));
+  });
+  // Your decks
+  var dk = $('railDecks'), decks = deckList(me()); dk.replaceChildren(h('h3', null, 'Your decks', h('button', { type: 'button', class: 'link', onclick: function () { setTab('me'); } }, decks.length ? 'Edit' : 'Add one')));
+  if (!decks.length) dk.append(h('p', { class: 'hint', text: 'Add your decks on the Me tab, then pick which ones you\'re bringing.' }));
+  var strip = h('div', { class: 'deckstrip' });
+  decks.forEach(function (d) {
+    var link = safeLink(d.url), art = deckArt(d, 'md');
+    var inner = [art, h('span', { class: 'whot' }, h('b', { text: d.name }), h('small', { text: [d.cmd, d.b ? 'B' + d.b : ''].filter(Boolean).join(' · ') }))];
+    strip.append(link ? h('a', { class: 'deckrow2', href: link, target: '_blank', rel: 'noopener' }, inner) : h('div', { class: 'deckrow2' }, inner));
+  });
+  if (decks.length) dk.append(strip);
+}
+
 // Seven days from today, with the games on each. A free day opens "Call a night" on that date.
 function renderWeek(shown, pm) {
   var box = $('week'); if (!box) return;
@@ -2427,6 +2512,7 @@ function wireForms() {
   document.querySelectorAll('#cardsSeg button').forEach(function (b) { b.addEventListener('click', function () { setCardsPref(b.dataset.cards); }); });
   document.querySelectorAll('#themeSeg button').forEach(function (b) { b.addEventListener('click', function () { setTheme(b.dataset.theme); }); });
   applyTheme();
+
   suggestBox({ input: 'avCmd', list: 'avList', min: 3, search: cardSearch,
     view: function (it) { return { title: it.name, sub: it.type }; },
     typed: function () { S.avPick = null; S.avArt(); },

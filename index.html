@@ -602,6 +602,55 @@ details.usernames .grid{margin-top:10px}
 .artopt b{font-size:12px;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .artopt small{font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .artopt[aria-pressed=true]{border-color:var(--accent-text);box-shadow:inset 0 0 0 2px var(--accent-text)}
+
+/* ---------- very wide screens: a bigger page and a third column ---------- */
+.rail{display:none}
+@media (min-width:1600px){
+  #app{max-width:min(2000px,calc(100vw - 96px))}
+  .games{grid-template-columns:320px minmax(0,1fr) 340px}
+  #nights,#polls{grid-template-columns:repeat(auto-fill,minmax(400px,1fr))}
+  .rail{display:flex;flex-direction:column;gap:16px;position:sticky;top:78px;max-height:calc(100vh - 96px);overflow-y:auto;overscroll-behavior:contain;padding-bottom:8px}
+  .htable{width:min(100%,520px);aspect-ratio:520/320}
+  .hero-in{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+}
+.railsec{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:14px;display:flex;flex-direction:column;gap:8px}
+.railsec h3{font-family:var(--font-display);font-size:17px;display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:2px}
+.railsec h3 .link{font-family:var(--font-body)}
+.whorow{display:flex;flex-direction:column;gap:8px;text-align:left;width:100%;border:1px solid var(--line);background:var(--bg);border-radius:12px;padding:10px 12px;color:var(--ink)}
+.whot{display:flex;flex-direction:column;min-width:0}
+.whot b{font-size:14px;line-height:1.25;overflow-wrap:anywhere;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.whot small{font-size:12px;color:var(--muted)}
+.faces{display:flex;flex-wrap:wrap}
+.face{width:30px;height:30px;border-radius:50%;margin-right:-6px;display:grid;place-items:center;font:700 12px/1 var(--font-display);color:var(--ink);
+  background:var(--surface-2) center/cover;box-shadow:0 0 0 2px var(--bg)}
+.face.hasart{color:transparent}
+.face.maybe{opacity:.55}
+.podrow{display:flex;gap:10px;align-items:center;padding:6px 2px;border-top:1px solid var(--line)}
+.podrow:first-of-type{border-top:0}
+.railnote{text-align:left;border:1px solid var(--accent-text);background:color-mix(in srgb,var(--accent) 12%,var(--surface));color:var(--ink);border-radius:10px;padding:8px 10px;font-weight:700;font-size:13px}
+.deckstrip{display:flex;flex-direction:column;gap:6px}
+.deckrow2{display:flex;gap:10px;align-items:center;padding:6px;border-radius:10px;color:var(--ink);text-decoration:none;border:1px solid transparent}
+a.deckrow2{border-color:var(--line)}
+
+/* ---------- Pods tab: one card per pod ---------- */
+.podlist{display:flex;flex-direction:column;gap:14px}
+.podlist .grouphead{margin:6px 0 -4px}
+.podgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));gap:16px;align-items:start}
+.podcard .titlebar h3{font-size:20px}
+.cost.podin{background:var(--good-soft);color:var(--good);border-color:transparent}
+.podban{min-height:96px}
+.podkind{background:var(--surface)}
+.podfaces{display:flex;flex-wrap:wrap;padding-left:2px}
+.podfaces .face{width:36px;height:36px;margin-right:-7px;box-shadow:0 0 0 2px var(--surface)}
+.face.facemore{font-family:var(--font-mono);font-size:11px;background:var(--surface);color:var(--ink)}
+.podnames{color:var(--muted);font-weight:500;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.podnext{display:flex;flex-direction:column;gap:1px;text-align:left;width:100%;border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:9px 11px;color:var(--ink)}
+.podnext b{font-size:15px;overflow-wrap:anywhere}
+.podnext small{font-size:13px;color:var(--muted)}
+.podnext.none{border-style:dashed}
+.podacts{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.podacts .podedit{margin-left:auto}
+.podcard:not(.mine) .card-in{opacity:.94}
 </style>
 </head>
 <body>
@@ -741,7 +790,7 @@ details.usernames .grid{margin-top:10px}
       <h2 id="podsH">Pods</h2>
       <button class="ghost" type="button" id="addPodBtn">New pod</button>
     </div>
-    <p class="hint">Tap a pod to join or leave it. Games called for a pod show who in it hasn't answered yet. Private pods only show up for their members.</p>
+    <p class="hint">Join the pods you play with. Games called for a pod show who in it hasn't answered yet. Private pods only show up for their members.</p>
     <form id="podForm" class="panel" hidden>
       <h2 id="podFormH">New pod</h2>
       <div class="field">
@@ -785,7 +834,7 @@ details.usernames .grid{margin-top:10px}
         <button class="link danger" type="button" id="podDelete" hidden>Remove pod</button>
       </div>
     </form>
-    <div id="pods" class="chips"></div>
+    <div id="pods" class="podlist"></div>
     <div id="invites" class="list"></div>
     <div id="inviteBox" hidden>
       <button class="link" type="button" id="inviteOpen">Invite someone to a pod</button>
@@ -833,6 +882,11 @@ details.usernames .grid{margin-top:10px}
       <div id="past"></div>
     </details>
     </div>
+    <aside id="rail" class="rail" aria-label="At a glance">
+      <section id="railWho" class="railsec"></section>
+      <section id="railPods" class="railsec"></section>
+      <section id="railDecks" class="railsec"></section>
+    </aside>
   </section>
 
   <section id="membersSec" class="strip view" aria-labelledby="membersH" hidden>
@@ -952,7 +1006,7 @@ details.usernames .grid{margin-top:10px}
 </form>
 <div id="toast" role="status" hidden></div>
 
-<script src="config.js?v=276eff5a15"></script>
-<script type="module" src="app.js?v=276eff5a15"></script>
+<script src="config.js?v=c5c16e738a"></script>
+<script type="module" src="app.js?v=c5c16e738a"></script>
 </body>
 </html>
