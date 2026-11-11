@@ -16,6 +16,8 @@ We play in several small groups, or "pods": a Tuesday Commander crew, people who
 - **Private pods:** a pod can be members only. Nobody else sees it, who's in it, or its games, and it gets its own private Discord channel.
 - **Area tags:** every game is tagged Upper Bucks, Central Bucks, Lower Bucks, MontCo, Philly Area, North Jersey or South Jersey, and you can filter by area. A host can also hide the address until you say you're in.
 - **Online games:** call a game on SpellTable, Cockatrice, Tabletop Simulator, Untap, XMage, Arena, MTGO or Discord voice, with a Join game link (shown only to people who are in, by default). Profiles can hold online usernames, and an online game lists everyone's username for its platform.
+- **Your picture:** pick any Magic card on the Me tab and its art becomes your picture in the seats and next to your name.
+- **Dark by default**, with Light and Match my device on the Me tab. The Games tab opens on your next game, with the table drawn as a circle of seats and this week's calendar beside the game cards.
 - **Notifications:** turn them on from the Me tab to get phone or computer notifications for new games, Game on, changes, and a reminder or nudge the day before. You choose which. (On iPhone, add the app to your home screen first.)
 - **Recurring games**, like every other Thursday or the first Friday of the month, show as one card with their upcoming dates.
 - **Discord** gets the announcements and a reminder the day before, so nobody has to remember to check.

@@ -1,4 +1,5 @@
     --bg:color-mix(in srgb,var(--accent) 10%,#131312); --surface:#1C1B1A; --surface-2:color-mix(in srgb,var(--accent) 8%,#242321);
+    --band:#0E1116; --band-ink:#F4F2EE;
     --ink:#EDEBE8; --muted:#A39F99; --line:#34322F;
     --good:#5FD08E; --good-soft:#1A3626;
     --warn:#E3B04F; --warn-soft:#3A2F14; --on-warn:#1B1303;

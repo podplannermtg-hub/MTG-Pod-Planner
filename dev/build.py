@@ -32,17 +32,18 @@ CSP = ("default-src 'self'; "
        "frame-src https://*.firebaseapp.com https://accounts.google.com https://apis.google.com; "
        "object-src 'none'; base-uri 'none'; form-action 'none'")
 
+# Dark is the default look. The Me tab offers Light and "Match my device" (data-theme on <html>).
 standalone_css = (
-    ':root{\n' + light + '  color-scheme:light;\n}\n'
-    '@media (prefers-color-scheme: dark){\n  :root{\n' + dark + '    color-scheme:dark;\n  }\n}\n'
+    ':root{\n' + dark + '  color-scheme:dark;\n}\n'
+    ':root[data-theme="light"]{\n' + light + '  color-scheme:light;\n}\n'
+    '@media (prefers-color-scheme: light){\n  :root[data-theme="auto"]{\n' + light + '    color-scheme:light;\n  }\n}\n'
     + base.replace('/*@@BODYPAD*/', 'margin:0;\n  padding-block:calc(28px + env(safe-area-inset-top,0px)) calc(56px + env(safe-area-inset-bottom,0px));'))
 
 def head(extra=''):
     return ('<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
             '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n' + extra +
             '<meta name="referrer" content="strict-origin-when-cross-origin">\n'
-            '<meta name="color-scheme" content="light dark">\n<meta name="theme-color" content="#EFEEEC" media="(prefers-color-scheme: light)">\n'
-            '<meta name="theme-color" content="#151514" media="(prefers-color-scheme: dark)">\n'
+            '<meta name="color-scheme" content="dark light">\n<meta name="theme-color" content="#0E1116">\n'
             '<meta name="apple-mobile-web-app-capable" content="yes">\n<meta name="mobile-web-app-capable" content="yes">\n'
             '<meta name="apple-mobile-web-app-title" content="Pod Planner">\n<title>Pod Planner</title>\n' + fonts + '\n'
             '<style>\n' + standalone_css + '</style>\n</head>\n<body>\n' + body)
@@ -59,7 +60,7 @@ MANIFEST = {
     'name': 'Pod Planner', 'short_name': 'Pod Planner',
     'description': 'Call a game night once. Every pod sees it and answers in one tap.',
     'start_url': './#games', 'scope': './', 'display': 'standalone',
-    'background_color': '#EFEEEC', 'theme_color': '#EFEEEC',
+    'background_color': '#151514', 'theme_color': '#0E1116',
     'icons': [
         {'src': 'icons/icon-192.png', 'sizes': '192x192', 'type': 'image/png', 'purpose': 'any'},
         {'src': 'icons/icon-512.png', 'sizes': '512x512', 'type': 'image/png', 'purpose': 'any'},
@@ -84,9 +85,9 @@ write(os.path.join(OUT_DIR, 'config.js'), read('config.js'))
 
 # claude.ai preview page (no doctype/head/body: the Artifact tool wraps it)
 preview_css = (
-    ':root{\n' + light + '}\n'
-    '@media (prefers-color-scheme: dark){\n  :root:not([data-theme="light"]){\n' + dark + '    color-scheme:dark;\n  }\n}\n'
-    ':root[data-theme="dark"]{\n' + dark + '  color-scheme:dark;\n}\n'
+    ':root{\n' + dark + '  color-scheme:dark;\n}\n'
+    ':root[data-theme="light"]{\n' + light + '  color-scheme:light;\n}\n'
+    '@media (prefers-color-scheme: light){\n  :root[data-theme="auto"]{\n' + light + '    color-scheme:light;\n  }\n}\n'
     + base.replace('/*@@BODYPAD*/', 'padding-block:28px 56px;'))
 write(OUT_PREVIEW, '<title>Pod Planner</title>\n<meta name="claude:viewport-fit-sides" content="cover">\n' + fonts + '\n'
       '<style>\n' + preview_css + '</style>\n' + body + '\n<script>\n' + read('backend.claude.js') + '\n' + app + '</script>\n')

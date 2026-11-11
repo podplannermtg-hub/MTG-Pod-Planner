@@ -5,19 +5,21 @@
       <h1>Pod Planner</h1>
       <p class="sub">Call a night once. The pods you pick see it and answer in one tap.</p>
     </div>
-    <div id="me" class="mebox"></div>
-  </header>
-
-  <div id="notice" class="notice" role="status" hidden></div>
-
-  <section id="gate" class="panel gate" hidden aria-live="polite"></section>
-
-  <nav id="tabs" class="tabs" aria-label="Sections" hidden>
+    <nav id="tabs" class="tabs" aria-label="Sections" hidden>
     <button type="button" data-tab="games"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg><span>Games</span><i class="tbadge" id="badgeGames" hidden></i></button>
     <button type="button" data-tab="pods"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="9" r="3.2"/><circle cx="16.5" cy="10" r="2.6"/><path d="M3.5 19c.6-3 2.8-4.6 5.5-4.6s4.9 1.6 5.5 4.6M14.5 15c2.6-.4 4.9.8 5.8 3.6"/></svg><span>Pods</span><i class="tbadge" id="badgePods" hidden></i></button>
     <button type="button" data-tab="me"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 20c.9-3.6 3.6-5.5 7-5.5s6.1 1.9 7 5.5"/></svg><span>Me</span></button>
     <button type="button" data-tab="organizer" id="tabOrg" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.2-7 9.5C8 19.2 5 15.5 5 11V6z"/><path d="M9 11.5l2 2 4-4"/></svg><span>Organizer</span></button>
   </nav>
+    <div id="me" class="mebox"></div>
+  </header>
+
+  <section id="hero" class="hero" aria-label="Next up" hidden></section>
+
+  <div id="notice" class="notice" role="status" hidden></div>
+
+  <section id="gate" class="panel gate" hidden aria-live="polite"></section>
+
 
   <div id="board" class="board">
   <section id="view-me" class="strip view" aria-labelledby="meH" hidden>
@@ -39,6 +41,13 @@
       </div>
       <p class="hint"><span class="ciname" id="ciName">Colorless</span>. The app takes on your colors, and they show next to your name.</p>
     </fieldset>
+    <div class="field">
+      <label for="avCmd">Your picture <span class="optl">optional</span></label>
+      <div class="avrow"><span class="dart av" id="avPrev" aria-hidden="true"></span>
+        <div class="suggestwrap grow"><input id="avCmd" type="text" maxlength="80" autocomplete="off" spellcheck="false" placeholder="Any card: start typing a name" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="avList">
+        <ul id="avList" class="suggest" role="listbox" aria-label="Matching cards" hidden></ul></div></div>
+      <p class="hint fine">A Magic card's art becomes your picture in the seats and next to your name. Your seat shows the deck you're bringing when you've picked one.</p>
+    </div>
     <div class="field">
       <label for="area">Your area <span class="optl">optional</span></label>
       <div class="suggestwrap"><input id="area" type="text" maxlength="60" autocomplete="off" spellcheck="false" placeholder="Doylestown, PA or 18901" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="areaList">
@@ -100,12 +109,21 @@
     </div>
   </div>
   <div class="panel">
+    <span class="sublabel">Look</span>
+    <div class="seg" id="themeSeg" role="group" aria-label="Light or dark">
+      <button type="button" data-theme="dark" aria-pressed="false">Dark</button>
+      <button type="button" data-theme="light" aria-pressed="false">Light</button>
+      <button type="button" data-theme="auto" aria-pressed="false">Match my device</button>
+    </div>
+    <p class="hint">Saved on this device.</p>
+  </div>
+  <div class="panel">
     <span class="sublabel">Game cards</span>
     <div class="seg" id="cardsSeg" role="group" aria-label="How game cards start">
       <button type="button" data-cards="compact" aria-pressed="false">Compact</button>
       <button type="button" data-cards="open" aria-pressed="false">Show details</button>
     </div>
-    <p class="hint">Compact cards keep the list short. You can always tap Details on a card. Saved on this device.</p>
+    <p class="hint">Compact cards keep the list short. Games waiting on your answer always start open. Saved on this device.</p>
   </div>
   </section>
 
@@ -173,7 +191,9 @@
     </div>
   </section>
 
-  <section id="view-games" class="strip view" aria-labelledby="nightsH">
+  <section id="view-games" class="view games" aria-labelledby="nightsH">
+    <aside id="week" class="weekcard" aria-label="This week"></aside>
+    <div class="gmain strip">
     <div class="head">
       <h2 id="nightsH">Game nights</h2>
       <button class="primary" type="button" id="callBtn">Call a night</button>
@@ -203,6 +223,7 @@
       <summary id="pastSum">Earlier nights</summary>
       <div id="past"></div>
     </details>
+    </div>
   </section>
 
   <section id="membersSec" class="strip view" aria-labelledby="membersH" hidden>

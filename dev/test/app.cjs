@@ -1011,11 +1011,36 @@ const calls = (page) => page.evaluate(() => window.__calls);
     check('phone: badge counts the night and the poll', (await page.innerText('#badgeGames')) === '2');
     check('phone: poll says it needs your vote', (await page.innerText('article.poll .cost')) === 'Needs your vote');
     check('phone: a game 30 days out is not nagged about', (await page.locator('.grouphead').allInnerTexts()).map((x) => x.toLowerCase()).join() === 'needs your answer,later');
-    const c1 = page.locator('article.night', { hasText: 'Existing Night' });
-    check('phone: cards start compact', (await c1.getAttribute('class')).includes('compact') && await c1.locator('.roster').isHidden() && await c1.locator('.rsvp').isVisible());
+    const c0 = page.locator('article.night', { hasText: 'Existing Night' });
+    check('phone: a game waiting on you starts open', !(await c0.getAttribute('class')).includes('compact') && await c0.locator('.roster').isVisible() && await c0.locator('.rsvp').isVisible());
+    const c1 = page.locator('article.night', { hasText: 'Far Night' });
+    check('phone: other cards start compact', (await c1.getAttribute('class')).includes('compact') && await c1.locator('.roster').isHidden() && await c1.locator('.rsvp').isVisible());
     await c1.locator('button.more').click();
-    check('phone: Details opens one card', await c1.locator('.roster').isVisible() && (await c1.locator('button.more').innerText()) === 'Less'
-      && (await page.locator('article.night', { hasText: 'Far Night' }).getAttribute('class')).includes('compact'));
+    check('phone: Details opens one card', await c1.locator('.roster').isVisible() && (await c1.locator('button.more').innerText()) === 'Less');
+    // The band: Existing Night needs an answer, so it is the hero, with I'm in / Maybe / Can't right there.
+    check('phone: hero shows the game waiting on you', (await page.locator('#hero .htitle').textContent()) === 'Existing Night' && (await page.locator('#hero .hlbl').textContent()).startsWith('Are you in?'));
+    check('phone: hero has answer buttons and open seats', (await page.locator('#hero .hb').allInnerTexts()).join() === "I'm in,Maybe,Can't,Details" && (await page.locator('#hero .hseat.open').count()) >= 1, [await page.locator('#hero .hb').allInnerTexts(), await page.locator('#hero .hseat.open').count()]);
+    const seatedBefore = await page.locator('#hero .hseat:not(.open)').count();
+    check('phone: week card lists the game on its day', (await page.locator('#week .wev').allInnerTexts()).some((t) => t.startsWith('Existing Night')) && (await page.locator('#week .wday').count()) === 7);
+    await page.locator('#hero .hb', { hasText: "I'm in" }).click();
+    await page.waitForFunction(() => document.querySelector('#hero .hlbl') && document.querySelector('#hero .hlbl').textContent.startsWith('Next up'));
+    check('phone: answering from the hero flips it to Next up', (await page.locator('#hero .hb').allInnerTexts())[0] === "You're in ✓" && (await page.locator('#hero .hseat:not(.open)').count()) === seatedBefore + 1 && await page.locator('#hero .hseat', { hasText: 'Rob' }).isVisible());
+    check('phone: week card shows You\'re in', (await page.locator('#week .wev').allInnerTexts()).some((t) => t.includes("You're in")));
+    await page.locator('#hero .hb', { hasText: 'Details' }).click();
+    await page.waitForTimeout(600);
+    check('phone: Details scrolls to the card', await page.locator('article.night', { hasText: 'Existing Night' }).locator('.roster').isVisible());
+    await page.locator('#hero .hb', { hasText: "You're in" }).click();
+    await page.locator('article.night', { hasText: 'Existing Night' }).locator('.rs.yes').click();
+    await page.waitForFunction(() => document.querySelector('#hero .hlbl') && document.querySelector('#hero .hlbl').textContent.startsWith('Are you in?'));
+    check('phone: un-answering brings the question back', true);
+    await page.locator('#tabs button[data-tab="me"]').click();
+    check('phone: Me tab has Dark / Light / Match my device', (await page.locator('#themeSeg button').allInnerTexts()).join() === 'Dark,Light,Match my device'
+      && (await page.locator('#themeSeg button[aria-pressed="true"]').innerText()) === 'Dark' && !(await page.evaluate(() => document.documentElement.hasAttribute('data-theme'))));
+    await page.locator('#themeSeg button', { hasText: 'Light' }).click();
+    check('phone: Light sets the page theme', (await page.evaluate(() => document.documentElement.getAttribute('data-theme'))) === 'light'
+      && (await page.evaluate(() => localStorage.getItem('pp.theme'))) === 'light');
+    await page.locator('#themeSeg button', { hasText: 'Dark' }).click();
+    await page.locator('#tabs button[data-tab="games"]').click();
     await page.screenshot({ path: path.join(SHOTS, 'shot-phone.png'), fullPage: false });
     await page.click('#callBtn');
     check('phone: Call a night opens a sheet', await page.locator('#nightForm').isVisible() && await page.locator('#sheetBackdrop').isVisible());
