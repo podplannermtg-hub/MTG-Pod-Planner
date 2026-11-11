@@ -1900,7 +1900,7 @@ function renderNights() {
   keepFocus(function () {
     var box = $('nights'); box.replaceChildren();
     if (!S.loaded.nights || !S.loaded.series) { box.append(h('p', { class: 'empty', text: S.db ? 'Loading the board…' : 'Nothing to show until setup is finished.' })); renderHero(podById()); renderWeek([], podById()); return; }
-    var pm = podById(), today = todayStr(), week = addDaysYmd(today, 7);
+    var pm = podById(), today = todayStr();
     var all = groupNights(upcomingNights());
     var shown = all.filter(function (g) { return visibleFor(g.items[0], pm); });
     var polls = S.polls.filter(function (p) { return visibleFor(p, pm); }).length;
@@ -1915,9 +1915,8 @@ function renderNights() {
     }
     var needs = shown.filter(function (g) { return needsNight(g.items[0], pm); });
     var rest = shown.filter(function (g) { return needs.indexOf(g) < 0; });
-    var soon = rest.filter(function (g) { return g.items[0].date < week; });
-    var later = rest.filter(function (g) { return g.items[0].date >= week; });
-    [['Needs your answer', needs], ['Next 7 days', soon], ['Later', later]].forEach(function (sec, i) {
+    // Everything else is one list in date order, so cards sit side by side; the week card covers "this week".
+    [['Needs your answer', needs], ['Coming up', rest]].forEach(function (sec, i) {
       if (!sec[1].length) return;
       box.append(h('h3', { class: 'grouphead' + (i === 0 ? ' needs' : ''), text: sec[0] }));
       sec[1].forEach(function (g) { box.append(nightCard(selectedIn(g), pm, g, i === 0 ? true : null)); });

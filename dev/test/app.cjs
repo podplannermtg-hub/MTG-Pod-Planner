@@ -311,7 +311,7 @@ const calls = (page) => page.evaluate(() => window.__calls);
 
     // filters
     const heads = await page.locator('.grouphead').allInnerTexts();
-    check('games grouped by when', heads.join().toLowerCase() === 'next 7 days', heads);
+    check('games not split by week', heads.join().toLowerCase() === 'coming up', heads);
     await page.fill('#fSearch', 'weekly');
     check('search narrows the list', (await page.locator('article.night').count()) === 1 && (await page.innerText('#fCount')).startsWith('Showing 1 of 2'));
     await page.fill('#fSearch', 'nothing matches this');
@@ -1010,7 +1010,7 @@ const calls = (page) => page.evaluate(() => window.__calls);
     check('phone: no Organizer tab for members', await page.locator('#tabOrg').isHidden());
     check('phone: badge counts the night and the poll', (await page.innerText('#badgeGames')) === '2');
     check('phone: poll says it needs your vote', (await page.innerText('article.poll .cost')) === 'Needs your vote');
-    check('phone: a game 30 days out is not nagged about', (await page.locator('.grouphead').allInnerTexts()).map((x) => x.toLowerCase()).join() === 'needs your answer,later');
+    check('phone: a game 30 days out is not nagged about', (await page.locator('.grouphead').allInnerTexts()).map((x) => x.toLowerCase()).join() === 'needs your answer,coming up');
     const c0 = page.locator('article.night', { hasText: 'Existing Night' });
     check('phone: a game waiting on you starts open', !(await c0.getAttribute('class')).includes('compact') && await c0.locator('.roster').isVisible() && await c0.locator('.rsvp').isVisible());
     const c1 = page.locator('article.night', { hasText: 'Far Night' });
