@@ -47,10 +47,16 @@ async function open(browser, auth, seed, extra, viewport) {
     if (u.startsWith('https://api.scryfall.com/cards/search')) {
       geo.push(decodeURIComponent(u));
       const q = decodeURIComponent(u.split('q=')[1] || '').toLowerCase();
+      if (u.includes('unique=art')) {
+        // Every printing's art: three versions of Atraxa, Grand Unifier
+        const ver = (id, set, yr, artist) => ({ name: 'Atraxa, Grand Unifier', set_name: set, released_at: yr + '-01-01', artist, image_uris: { art_crop: 'https://cards.scryfall.io/art_crop/front/' + id + '.jpg?1' } });
+        const list = q.includes('atraxa, grand unifier') ? [ver('9/9/sl1', 'Secret Lair Drop', '2024', 'SL Artist'), ver('7/7/pr2', 'Promo Pack', '2023', 'Promo Artist'), ver('4/5/45bd', 'Phyrexia: All Will Be One', '2023', 'Marta Nael')] : [];
+        return route.fulfill({ status: list.length ? 200 : 404, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify(list.length ? { data: list } : { object: 'error' }) });
+      }
       const all = [
         { name: "Atraxa, Praetors' Voice", type_line: 'Legendary Creature — Phyrexian Angel Horror', artist: 'Victor Adame Minguez', image_uris: { art_crop: 'https://cards.scryfall.io/art_crop/front/d/0/d0d33d52.jpg?1599707796' } },
         { name: 'Atraxa, Grand Unifier', type_line: 'Legendary Creature — Phyrexian Angel', artist: 'Marta Nael', image_uris: { art_crop: 'https://cards.scryfall.io/art_crop/front/4/5/45bd.jpg?1675' } },
-      ].filter((c) => q.includes('is:commander') && c.name.toLowerCase().includes(q.replace('is:commander ', '')));
+      ].filter((c) => c.name.toLowerCase().includes(q.replace('is:commander ', '')));
       return route.fulfill({ status: all.length ? 200 : 404, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify(all.length ? { data: all } : { object: 'error' }) });
     }
     if (u.startsWith('https://api.scryfall.com/cards/named')) {
@@ -606,11 +612,44 @@ const calls = (page) => page.evaluate(() => window.__calls);
       && geo.some((u) => u.includes('q=is:commander atr')) && (await page.getAttribute('#dCmd', 'aria-expanded')) === 'true');
     await page.press('#dCmd', 'ArrowDown'); await page.press('#dCmd', 'ArrowDown'); await page.press('#dCmd', 'Enter');
     check('arrow keys and Enter pick a commander', (await page.inputValue('#dCmd')) === 'Atraxa, Grand Unifier' && await page.locator('#dCmdList').isHidden() && await page.isVisible('#deckForm'));
+    await page.waitForFunction(() => /Phyrexia/.test(document.querySelector('#dArt .artnow').textContent));
+    check('art picker names the current version', (await page.innerText('#dArt .artnow')) === 'Art: Phyrexia: All Will Be One (2023) · Marta Nael'
+      && (await page.innerText('#dArt .artmore')) === 'Choose from 3 versions' && geo.some((u) => u.includes('unique=art') && u.includes('!"Atraxa, Grand Unifier"')));
+    await page.click('#dArt .artmore');
+    check('art picker shows every version, current one marked', (await page.locator('#dArt .artopt').count()) === 3
+      && (await page.locator('#dArt .artopt[aria-pressed="true"]').innerText()).startsWith('Phyrexia'));
+    await page.locator('#dArt .artopt', { hasText: 'Secret Lair Drop' }).click();
+    check('choosing a version closes the grid and names it', await page.locator('#dArt .artgrid').isHidden() && (await page.innerText('#dArt .artnow')).startsWith('Art: Secret Lair Drop'));
     const named = geo.filter((u) => u.includes('/cards/named')).length;
     await page.click('#deckSave');
     await page.waitForFunction(() => (window.__store.people.me1.decks || []).some((d) => d.name === 'Big Unifier'));
     const bu = (await store(page)).people.me1.decks.find((d) => d.name === 'Big Unifier');
-    check('picked commander saved with its art, no second lookup', bu.cmd === 'Atraxa, Grand Unifier' && bu.artist === 'Marta Nael' && bu.art.includes('45bd') && geo.filter((u) => u.includes('/cards/named')).length === named);
+    check('chosen art version saved with its artist, no second lookup', bu.cmd === 'Atraxa, Grand Unifier' && bu.artist === 'SL Artist' && bu.art.includes('sl1') && geo.filter((u) => u.includes('/cards/named')).length === named, bu);
+    await page.locator('#deckList .deckrow', { hasText: 'Big Unifier' }).locator('button', { hasText: 'Edit' }).click();
+    await page.waitForFunction(() => /Secret Lair/.test(document.querySelector('#dArt .artnow').textContent));
+    await page.click('#dArt .artmore');
+    await page.locator('#dArt .artopt', { hasText: 'Promo Pack' }).click();
+    await page.click('#deckSave');
+    await page.waitForFunction(() => window.__store.people.me1.decks.some((d) => d.name === 'Big Unifier' && /pr2/.test(d.art)));
+    check('editing a deck can switch to another version', true);
+
+    // Your picture: any card, any version
+    await tab(page, 'me');
+    await page.locator('#avCmd').pressSequentially('atraxa, gr', { delay: 20 });
+    await page.waitForSelector('#avList:not([hidden]) .sopt');
+    check('picture search is not limited to commanders', geo.some((u) => u.includes('q=atraxa, gr') && !u.includes('is:commander atraxa, gr')));
+    await page.locator('#avList .sopt').first().click();
+    await page.waitForSelector('#avArt:not([hidden]) .artmore');
+    await page.waitForFunction(() => /versions/.test(document.querySelector('#avArt .artmore').textContent));
+    await page.click('#avArt .artmore');
+    await page.locator('#avArt .artopt', { hasText: 'Secret Lair Drop' }).click();
+    check('picture preview follows the chosen version', (await page.locator('#avPrev').evaluate((e) => e.style.backgroundImage)).includes('sl1'));
+    await page.click('#nickForm button[type=submit]');
+    await page.waitForFunction(() => window.__store.people.me1.av && /sl1/.test(window.__store.people.me1.av.art));
+    check('picture saved with the chosen version', (await store(page)).people.me1.av.artist === 'SL Artist');
+    await tab(page, 'me');
+    await page.waitForFunction(() => /Secret Lair/.test((document.querySelector('#avArt .artnow') || {}).textContent || ''));
+    check('reopening Me shows the saved version', true);
     await page.click('#addDeckBtn');
     await page.locator('#dCmd').pressSequentially('zz', { delay: 30 });
     await page.waitForTimeout(500);
