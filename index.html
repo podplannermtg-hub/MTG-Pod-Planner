@@ -8,9 +8,8 @@
 <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <meta name="referrer" content="strict-origin-when-cross-origin">
-<meta name="color-scheme" content="light dark">
-<meta name="theme-color" content="#EFEEEC" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#151514" media="(prefers-color-scheme: dark)">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#0E1116">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Pod Planner">
@@ -18,8 +17,28 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600..800&family=Hanken+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
 <style>
 :root{
+    --bg:color-mix(in srgb,var(--accent) 10%,#131312); --surface:#1C1B1A; --surface-2:color-mix(in srgb,var(--accent) 8%,#242321);
+    --band:#0E1116; --band-ink:#F4F2EE;
+    --ink:#EDEBE8; --muted:#A39F99; --line:#34322F;
+    --good:#5FD08E; --good-soft:#1A3626;
+    --warn:#E3B04F; --warn-soft:#3A2F14; --on-warn:#1B1303;
+    --bad:#EF7B7B;
+    --m-w:#E5D58E; --m-u:#5C9BDB; --m-b:#57545C; --m-r:#E36B56; --m-g:#58B374; --m-c:#6B6863;
+    --fr-w:#D3C68F; --fr-w2:#9C8E55; --fr-u:#4483C2; --fr-u2:#244F80; --fr-b:#5F5C65; --fr-b2:#262529;
+    --fr-r:#CC5A43; --fr-r2:#8A2E1E; --fr-g:#46985E; --fr-g2:#255C36; --fr-gold:#CFAA45; --fr-gold2:#8A681C;
+    --fr-c:#76726C; --fr-c2:#4B4844;
+    --acc-c:#E8E6E2; --acc-c-ink:#161514; --acc-c-text:#E8E6E2;
+    --acc-w:#E8D88E; --acc-w-ink:#1B1608; --acc-w-text:#E8D88E;
+    --acc-u:#5C9BDB; --acc-u-ink:#06121F; --acc-u-text:#7FB2E6;
+    --acc-b:#AEABB3; --acc-b-ink:#141316; --acc-b-text:#C6C3CA;
+    --acc-r:#E36B56; --acc-r-ink:#1E0A06; --acc-r-text:#F08A77;
+    --acc-g:#58B374; --acc-g-ink:#06150B; --acc-g-text:#74C68E;
+  color-scheme:dark;
+}
+:root[data-theme="light"]{
   /* Stone, with a hint of the viewer's own colors (the accent follows their color identity) */
   --bg:color-mix(in srgb,var(--accent) 9%,#EFEEEC); --surface:#FBFBFA; --surface-2:color-mix(in srgb,var(--accent) 7%,#E9E7E4);
+  --band:color-mix(in srgb,var(--accent) 55%,#0B0F14); --band-ink:#F4F2EE;
   --ink:#1A1917; --muted:#5F5B56; --line:#D5D2CD;
   --hi:#FFFFFF;
   --good:#17703F; --good-soft:#D2EBDC;
@@ -42,24 +61,32 @@
   --font-mono:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,monospace;
   color-scheme:light;
 }
-@media (prefers-color-scheme: dark){
-  :root{
-    --bg:color-mix(in srgb,var(--accent) 10%,#131312); --surface:#1C1B1A; --surface-2:color-mix(in srgb,var(--accent) 8%,#242321);
-    --ink:#EDEBE8; --muted:#A39F99; --line:#34322F;
-    --good:#5FD08E; --good-soft:#1A3626;
-    --warn:#E3B04F; --warn-soft:#3A2F14; --on-warn:#1B1303;
-    --bad:#EF7B7B;
-    --m-w:#E5D58E; --m-u:#5C9BDB; --m-b:#57545C; --m-r:#E36B56; --m-g:#58B374; --m-c:#6B6863;
-    --fr-w:#D3C68F; --fr-w2:#9C8E55; --fr-u:#4483C2; --fr-u2:#244F80; --fr-b:#5F5C65; --fr-b2:#262529;
-    --fr-r:#CC5A43; --fr-r2:#8A2E1E; --fr-g:#46985E; --fr-g2:#255C36; --fr-gold:#CFAA45; --fr-gold2:#8A681C;
-    --fr-c:#76726C; --fr-c2:#4B4844;
-    --acc-c:#E8E6E2; --acc-c-ink:#161514; --acc-c-text:#E8E6E2;
-    --acc-w:#E8D88E; --acc-w-ink:#1B1608; --acc-w-text:#E8D88E;
-    --acc-u:#5C9BDB; --acc-u-ink:#06121F; --acc-u-text:#7FB2E6;
-    --acc-b:#AEABB3; --acc-b-ink:#141316; --acc-b-text:#C6C3CA;
-    --acc-r:#E36B56; --acc-r-ink:#1E0A06; --acc-r-text:#F08A77;
-    --acc-g:#58B374; --acc-g-ink:#06150B; --acc-g-text:#74C68E;
-    color-scheme:dark;
+@media (prefers-color-scheme: light){
+  :root[data-theme="auto"]{
+  /* Stone, with a hint of the viewer's own colors (the accent follows their color identity) */
+  --bg:color-mix(in srgb,var(--accent) 9%,#EFEEEC); --surface:#FBFBFA; --surface-2:color-mix(in srgb,var(--accent) 7%,#E9E7E4);
+  --band:color-mix(in srgb,var(--accent) 55%,#0B0F14); --band-ink:#F4F2EE;
+  --ink:#1A1917; --muted:#5F5B56; --line:#D5D2CD;
+  --hi:#FFFFFF;
+  --good:#17703F; --good-soft:#D2EBDC;
+  --warn:#8F5A00; --warn-soft:#F3E4C4; --on-warn:#FFFFFF;
+  --bad:#A63636;
+  --m-w:#D9C67A; --m-u:#3B7DBF; --m-b:#3A383E; --m-r:#D1523D; --m-g:#3C9A59; --m-c:#B3AFA9;
+  /* card frames: two stops per color */
+  --fr-w:#EDE3BC; --fr-w2:#CDBB7C; --fr-u:#5A97D4; --fr-u2:#2C66A6; --fr-b:#5E5B63; --fr-b2:#26252A;
+  --fr-r:#DD6650; --fr-r2:#A93A27; --fr-g:#55A56B; --fr-g2:#2C7643; --fr-gold:#E6C770; --fr-gold2:#B48A2C;
+  --fr-c:#CBC7C1; --fr-c2:#97928B;
+  /* accent per color identity: fill, text on the fill, and accent used as text */
+  --acc-c:#26252A; --acc-c-ink:#F7F6F4; --acc-c-text:#26252A;
+  --acc-w:#E3CF7E; --acc-w-ink:#2B2410; --acc-w-text:#7A6418;
+  --acc-u:#2F6DB0; --acc-u-ink:#FFFFFF; --acc-u-text:#2A62A0;
+  --acc-b:#2E2D32; --acc-b-ink:#F4F3F5; --acc-b-text:#3A383E;
+  --acc-r:#BF402D; --acc-r-ink:#FFFFFF; --acc-r-text:#AE3A28;
+  --acc-g:#2E7D47; --acc-g-ink:#FFFFFF; --acc-g-text:#2A7442;
+  --font-display:'Bricolage Grotesque','Trebuchet MS',system-ui,sans-serif;
+  --font-body:'Hanken Grotesk',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-mono:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,monospace;
+    color-scheme:light;
   }
 }
 /* Layout: one narrow column. Header, pods, then polls and game nights drawn as trading-card-style frames:
@@ -82,6 +109,7 @@ body{
   padding-left:max(16px,env(safe-area-inset-left,0px));
   padding-right:max(16px,env(safe-area-inset-right,0px));
 }
+body{overflow-x:clip}
 #app{max-width:720px;margin:0 auto;display:flex;flex-direction:column;gap:24px}
 h1,h2,h3,p{margin:0}
 h1{font-family:var(--font-display);font-weight:800;font-size:34px;line-height:1.05;letter-spacing:-0.02em;text-wrap:balance}
@@ -91,12 +119,25 @@ button{cursor:pointer}
 button:disabled{cursor:not-allowed;opacity:.5}
 :focus-visible{outline:2px solid var(--accent-text);outline-offset:2px}
 
-.top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}
+/* The app bar and the "next up" strip share one dark band that runs edge to edge. */
+.bleed{margin-left:calc(50% - 50vw);margin-right:calc(50% - 50vw);padding-left:calc(50vw - 50%);padding-right:calc(50vw - 50%)}
+.top{display:flex;justify-content:flex-start;align-items:center;gap:12px 20px;flex-wrap:wrap;background:var(--band);color:var(--band-ink);
+  margin-top:calc(-28px - env(safe-area-inset-top,0px));padding-top:calc(14px + env(safe-area-inset-top,0px));padding-bottom:12px;
+  margin-left:calc(50% - 50vw);margin-right:calc(50% - 50vw);padding-left:calc(50vw - 50%);padding-right:calc(50vw - 50%)}
+.top h1{font-size:22px;letter-spacing:-0.01em;color:var(--band-ink)}
+.top .mebox{margin-left:auto}
+.top .link{color:color-mix(in srgb,var(--band-ink) 75%,transparent)}
+.top .me-btn{background:color-mix(in srgb,var(--band-ink) 8%,transparent);border-color:color-mix(in srgb,var(--band-ink) 30%,transparent);color:var(--band-ink)}
+.top .me-btn small{color:color-mix(in srgb,var(--band-ink) 65%,transparent)}
+.top .me-btn .pips i{box-shadow:0 0 0 1px color-mix(in srgb,var(--band-ink) 35%,transparent)}
+.top .dot{box-shadow:0 0 0 1px color-mix(in srgb,var(--band-ink) 30%,transparent)}
+body.tabbed .top .sub{display:none}
+body.tabbed .brand{flex-direction:row;align-items:center;gap:10px}
 .brand{display:flex;flex-direction:column;gap:8px;min-width:0}
 .mana-row{display:flex;gap:5px}
 .dot{display:inline-block;width:11px;height:11px;border-radius:50%;flex:none;box-shadow:0 0 0 1px color-mix(in srgb,var(--ink) 25%,transparent)}
 .m-W{background:var(--m-w)} .m-U{background:var(--m-u)} .m-B{background:var(--m-b)} .m-R{background:var(--m-r)} .m-G{background:var(--m-g)} .m-C{background:var(--m-c)}
-.sub{color:var(--muted);max-width:44ch}
+.sub{color:color-mix(in srgb,var(--band-ink) 72%,transparent);max-width:44ch}
 .me-btn{display:inline-flex;align-items:center;gap:8px;padding:7px 12px;border:1px solid var(--line);background:var(--surface);border-radius:999px;font-size:13px;font-weight:600}
 .me-btn small{font-weight:500;color:var(--muted)}
 .pips{display:inline-flex;gap:2px;margin-left:4px;vertical-align:1px}
@@ -351,12 +392,14 @@ details.past summary{cursor:pointer;font-weight:600;font-size:14px}
 body.tabbed{padding-bottom:calc(92px + env(safe-area-inset-bottom,0px))}
 body.tabbed #toast{bottom:calc(84px + env(safe-area-inset-bottom,0px))}
 @media (min-width:900px){
-  .tabs{position:sticky;top:calc(10px + env(safe-area-inset-top,0px));display:flex;justify-content:flex-start;gap:4px;
-    border:1px solid var(--line);border-radius:14px;padding:5px}
-  .tabs button{flex-direction:row;gap:8px;min-height:40px;padding:6px 14px;font-size:14px}
+  .tabs{position:static;display:flex;justify-content:flex-start;gap:4px;border:0;background:none;padding:0;margin-left:8px;
+    -webkit-backdrop-filter:none;backdrop-filter:none}
+  .tabs button{flex-direction:row;gap:8px;min-height:40px;padding:6px 14px;font-size:14px;border-radius:999px;color:color-mix(in srgb,var(--band-ink) 70%,transparent)}
   .tabs svg{width:20px;height:20px}
-  .tabs button[aria-current=page]{background:var(--bg)}
+  .tabs button[aria-current=page]{background:color-mix(in srgb,var(--band-ink) 15%,transparent);color:var(--band-ink)}
+  .tabs button[aria-current=page] svg{color:var(--band-ink)}
   .tabs button[aria-current=page]::before{display:none}
+  .top{position:sticky;top:0;z-index:16}
   .tbadge{position:static;box-shadow:none}
   body.tabbed{padding-bottom:calc(56px + env(safe-area-inset-bottom,0px))}
   body.tabbed #toast{bottom:calc(24px + env(safe-area-inset-bottom,0px))}
@@ -397,7 +440,7 @@ body.sheet-open{overflow:hidden}
 
 /* ---------- wide screens: more room, two games per row ---------- */
 @media (min-width:1000px){
-  #app{max-width:1080px}
+  #app{max-width:1200px}
   #nights{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:18px}
   #nights > .grouphead,#nights > .empty{grid-column:1/-1}
   #polls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:18px}
@@ -479,6 +522,69 @@ details.usernames summary{cursor:pointer;font-size:12px;font-weight:600;letter-s
 details.usernames[open] summary{margin-bottom:8px}
 details.usernames .grid{margin-top:10px}
 .spin{flex:none;width:10px;height:10px;margin:0 4px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:var(--accent-text)}
+
+/* ---------- the band: next game, round table, this week ---------- */
+.hero{position:relative;overflow:hidden;background:var(--band);color:var(--band-ink);margin-top:-24px;padding-block:14px 100px;
+  margin-left:calc(50% - 50vw);margin-right:calc(50% - 50vw);padding-left:calc(50vw - 50%);padding-right:calc(50vw - 50%)}
+.hero::before{content:"";position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(80% 90% at 50% 0%,color-mix(in srgb,var(--accent) 28%,transparent),transparent 60%)}
+.hero-in{position:relative;display:grid;grid-template-columns:1fr;gap:26px;align-items:center}
+.htext{min-width:0}
+.hlbl{font-size:12px;letter-spacing:.09em;text-transform:uppercase;font-weight:700;color:color-mix(in srgb,var(--band-ink) 72%,transparent)}
+.htitle{font-family:var(--font-display);font-weight:800;font-size:clamp(32px,4.4vw,52px);line-height:1;letter-spacing:-0.02em;margin:8px 0 10px;color:var(--band-ink);text-wrap:balance;overflow-wrap:anywhere}
+.hmeta{color:color-mix(in srgb,var(--band-ink) 82%,transparent);font-size:15px}
+.hbtns{display:flex;gap:10px;flex-wrap:wrap;margin-top:20px}
+.hb{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:46px;padding:10px 20px;border-radius:12px;font-weight:800;font-size:15px;
+  border:1.5px solid transparent;text-decoration:none;background:var(--band-ink);color:#111;flex:1 1 auto}
+.hb.g{background:color-mix(in srgb,var(--band-ink) 6%,transparent);border-color:color-mix(in srgb,var(--band-ink) 40%,transparent);color:var(--band-ink)}
+.hb.yes{background:var(--good);color:#fff}
+.hb[aria-pressed=true]{outline:2px solid var(--band-ink);outline-offset:2px}
+.htable{--hs:56px;position:relative;justify-self:center;width:min(100%,300px);aspect-ratio:300/210;margin:36px 0 24px}
+.htable::before{content:"";position:absolute;inset:14% 6%;border-radius:50%;border:2px solid color-mix(in srgb,var(--band-ink) 18%,transparent);
+  background:radial-gradient(closest-side,color-mix(in srgb,var(--band-ink) 12%,transparent),color-mix(in srgb,var(--band-ink) 3%,transparent))}
+.hseat{position:absolute;width:var(--hs);height:var(--hs);left:calc(var(--x)*1% - var(--hs)/2);top:calc(var(--y)*1% - var(--hs)/2);border-radius:50%;display:grid;place-items:center;
+  font-family:var(--font-display);font-weight:800;font-size:22px;color:var(--band-ink);background:color-mix(in srgb,var(--band-ink) 14%,transparent);background-size:cover;background-position:center;
+  box-shadow:0 0 0 4px rgba(0,0,0,.45),0 14px 30px -10px rgba(0,0,0,.7)}
+.hseat.hasart{color:transparent}
+.hseat.maybe{border:2px dashed color-mix(in srgb,var(--band-ink) 55%,transparent);opacity:.85}
+.hseat.open{background:color-mix(in srgb,var(--band-ink) 6%,transparent);border:2px dashed color-mix(in srgb,var(--band-ink) 55%,transparent);box-shadow:none;
+  font-family:var(--font-body);font-weight:700;font-size:13px}
+.hseat.over{box-shadow:0 0 0 3px var(--bad),0 14px 30px -10px rgba(0,0,0,.7)}
+.hseat small{position:absolute;top:100%;left:50%;transform:translateX(-50%);margin-top:6px;font:700 12px/1.2 var(--font-body);white-space:nowrap;color:var(--band-ink)}
+@media (min-width:900px){
+  .hero-in{grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:28px 40px}
+  .hero{padding-block:28px 100px}
+  .hb{flex:0 0 auto}
+  .htable{--hs:66px;width:min(100%,440px);aspect-ratio:440/260;margin:0}
+}
+/* This week: a calendar card beside the games on wide screens, a row of days under the band on phones. */
+.games{display:flex;flex-direction:column;gap:18px}
+.weekcard{position:relative;z-index:2;margin-top:-84px;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:14px;
+  box-shadow:0 18px 40px -26px rgba(0,0,0,.6)}
+.weekcard h3{font-family:var(--font-display);font-size:18px;display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:10px}
+.weekcard h3 small{font-family:var(--font-body);font-weight:600;color:var(--muted);font-size:13px}
+.wdays{display:flex;gap:8px;overflow-x:auto;scroll-snap-type:x proximity;margin:0 -14px;padding:0 14px 4px}
+.wday{flex:0 0 150px;scroll-snap-align:start;border:1px solid var(--line);border-radius:12px;padding:8px 10px;min-height:118px;display:flex;flex-direction:column;gap:6px;background:var(--bg)}
+.wday.today{background:color-mix(in srgb,var(--accent) 10%,var(--surface));outline:1.5px solid var(--accent-text)}
+.wday h4{margin:0;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);display:flex;align-items:baseline;gap:6px}
+.wday h4 b{font-family:var(--font-mono);font-size:19px;color:var(--ink)}
+.wevs{display:flex;flex-direction:column;gap:4px;flex:1}
+.wev{display:block;width:100%;text-align:left;border:0;border-left:4px solid var(--fa,var(--line));border-radius:8px;padding:7px 8px;background:var(--surface-2);font-size:12.5px;font-weight:700;color:var(--ink);line-height:1.25;min-height:40px}
+.wev small{display:block;font-weight:600;color:var(--muted);font-size:11.5px}
+.wev.on{background:var(--good-soft)}
+.wopen{margin-top:auto;background:none;border:1px dashed var(--line);border-radius:8px;padding:7px;font-size:12px;font-weight:600;color:var(--muted);text-align:center;min-height:36px;display:block;width:100%}
+@media (min-width:1000px){
+  .games{display:grid;grid-template-columns:340px minmax(0,1fr);gap:26px;align-items:start}
+  .weekcard{position:sticky;top:78px}
+  .wdays{flex-direction:column;overflow:visible;gap:6px;margin:0;padding:0}
+  .wday{flex:none;display:grid;grid-template-columns:48px minmax(0,1fr);gap:8px;align-items:center;min-height:50px;padding:8px 10px}
+  .wday h4{flex-direction:column;align-items:flex-start;gap:0;line-height:1.1}
+  .wopen{margin:0}
+}
+/* Your picture */
+.avrow{display:flex;gap:12px;align-items:center}
+.dart.av{width:52px;height:52px;font-size:20px;color:var(--ink);background-color:var(--surface-2)}
+.me-btn .dart.sm{box-shadow:0 0 0 1px color-mix(in srgb,var(--band-ink) 40%,transparent);margin:-3px 0 -3px -4px}
 </style>
 </head>
 <body>
@@ -489,19 +595,21 @@ details.usernames .grid{margin-top:10px}
       <h1>Pod Planner</h1>
       <p class="sub">Call a night once. The pods you pick see it and answer in one tap.</p>
     </div>
-    <div id="me" class="mebox"></div>
-  </header>
-
-  <div id="notice" class="notice" role="status" hidden></div>
-
-  <section id="gate" class="panel gate" hidden aria-live="polite"></section>
-
-  <nav id="tabs" class="tabs" aria-label="Sections" hidden>
+    <nav id="tabs" class="tabs" aria-label="Sections" hidden>
     <button type="button" data-tab="games"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg><span>Games</span><i class="tbadge" id="badgeGames" hidden></i></button>
     <button type="button" data-tab="pods"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="9" r="3.2"/><circle cx="16.5" cy="10" r="2.6"/><path d="M3.5 19c.6-3 2.8-4.6 5.5-4.6s4.9 1.6 5.5 4.6M14.5 15c2.6-.4 4.9.8 5.8 3.6"/></svg><span>Pods</span><i class="tbadge" id="badgePods" hidden></i></button>
     <button type="button" data-tab="me"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.5" r="3.5"/><path d="M5 20c.9-3.6 3.6-5.5 7-5.5s6.1 1.9 7 5.5"/></svg><span>Me</span></button>
     <button type="button" data-tab="organizer" id="tabOrg" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.2-7 9.5C8 19.2 5 15.5 5 11V6z"/><path d="M9 11.5l2 2 4-4"/></svg><span>Organizer</span></button>
   </nav>
+    <div id="me" class="mebox"></div>
+  </header>
+
+  <section id="hero" class="hero" aria-label="Next up" hidden></section>
+
+  <div id="notice" class="notice" role="status" hidden></div>
+
+  <section id="gate" class="panel gate" hidden aria-live="polite"></section>
+
 
   <div id="board" class="board">
   <section id="view-me" class="strip view" aria-labelledby="meH" hidden>
@@ -523,6 +631,13 @@ details.usernames .grid{margin-top:10px}
       </div>
       <p class="hint"><span class="ciname" id="ciName">Colorless</span>. The app takes on your colors, and they show next to your name.</p>
     </fieldset>
+    <div class="field">
+      <label for="avCmd">Your picture <span class="optl">optional</span></label>
+      <div class="avrow"><span class="dart av" id="avPrev" aria-hidden="true"></span>
+        <div class="suggestwrap grow"><input id="avCmd" type="text" maxlength="80" autocomplete="off" spellcheck="false" placeholder="Any card: start typing a name" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="avList">
+        <ul id="avList" class="suggest" role="listbox" aria-label="Matching cards" hidden></ul></div></div>
+      <p class="hint fine">A Magic card's art becomes your picture in the seats and next to your name. Your seat shows the deck you're bringing when you've picked one.</p>
+    </div>
     <div class="field">
       <label for="area">Your area <span class="optl">optional</span></label>
       <div class="suggestwrap"><input id="area" type="text" maxlength="60" autocomplete="off" spellcheck="false" placeholder="Doylestown, PA or 18901" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="areaList">
@@ -584,12 +699,21 @@ details.usernames .grid{margin-top:10px}
     </div>
   </div>
   <div class="panel">
+    <span class="sublabel">Look</span>
+    <div class="seg" id="themeSeg" role="group" aria-label="Light or dark">
+      <button type="button" data-theme="dark" aria-pressed="false">Dark</button>
+      <button type="button" data-theme="light" aria-pressed="false">Light</button>
+      <button type="button" data-theme="auto" aria-pressed="false">Match my device</button>
+    </div>
+    <p class="hint">Saved on this device.</p>
+  </div>
+  <div class="panel">
     <span class="sublabel">Game cards</span>
     <div class="seg" id="cardsSeg" role="group" aria-label="How game cards start">
       <button type="button" data-cards="compact" aria-pressed="false">Compact</button>
       <button type="button" data-cards="open" aria-pressed="false">Show details</button>
     </div>
-    <p class="hint">Compact cards keep the list short. You can always tap Details on a card. Saved on this device.</p>
+    <p class="hint">Compact cards keep the list short. Games waiting on your answer always start open. Saved on this device.</p>
   </div>
   </section>
 
@@ -657,7 +781,9 @@ details.usernames .grid{margin-top:10px}
     </div>
   </section>
 
-  <section id="view-games" class="strip view" aria-labelledby="nightsH">
+  <section id="view-games" class="view games" aria-labelledby="nightsH">
+    <aside id="week" class="weekcard" aria-label="This week"></aside>
+    <div class="gmain strip">
     <div class="head">
       <h2 id="nightsH">Game nights</h2>
       <button class="primary" type="button" id="callBtn">Call a night</button>
@@ -687,6 +813,7 @@ details.usernames .grid{margin-top:10px}
       <summary id="pastSum">Earlier nights</summary>
       <div id="past"></div>
     </details>
+    </div>
   </section>
 
   <section id="membersSec" class="strip view" aria-labelledby="membersH" hidden>
@@ -806,7 +933,7 @@ details.usernames .grid{margin-top:10px}
 </form>
 <div id="toast" role="status" hidden></div>
 
-<script src="config.js?v=ef8fb442fd"></script>
-<script type="module" src="app.js?v=ef8fb442fd"></script>
+<script src="config.js?v=58d5e1a0b7"></script>
+<script type="module" src="app.js?v=58d5e1a0b7"></script>
 </body>
 </html>

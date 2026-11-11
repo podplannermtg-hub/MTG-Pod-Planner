@@ -285,6 +285,7 @@ function decksFor(p, n) {
   var all = deckList(p);
   return ids.map(function (id) { return all.filter(function (d) { return d.id === id; })[0]; }).filter(Boolean);
 }
+function avatarArt(p) { return p && p.av ? safeArt(p.av.art) : ''; }
 function overLimit(d, n) { return hasBrackets(n.format) && n.bracket > 0 && d.b > n.bracket; }
 function commanderArt(name) {
   name = String(name || '').trim();
@@ -301,9 +302,11 @@ function commanderArt(name) {
 }
 // Commander type-ahead: as you type, Scryfall suggests legal commanders (most played first).
 var cmdSeq = 0, cmdCache = {}, cmdTimer = null;
-function commanderSearch(q) {
+function commanderSearch(q) { return cardSearch('is:commander ' + q); }
+// Any card, most played first. Used for commanders and for the picture on your profile.
+function cardSearch(q) {
   if (cmdCache[q]) return Promise.resolve(cmdCache[q]);
-  var url = 'https://api.scryfall.com/cards/search?order=edhrec&unique=cards&q=' + encodeURIComponent('is:commander ' + q);
+  var url = 'https://api.scryfall.com/cards/search?order=edhrec&unique=cards&q=' + encodeURIComponent(q);
   return fetch(url, { headers: { Accept: 'application/json' } })
     .then(function (r) { return r.ok ? r.json() : { data: [] }; })
     .then(function (j) {
@@ -673,6 +676,8 @@ function useHere() {
 function fillNick() {
   $('nick').value = (me() && me().nick) || S.profileName || '';
   $('area').value = (me() && me().area) || '';
+  S.avPick = null; $('avCmd').value = (me() && me().av && me().av.name) || '';
+  renderAvPrev(me() && me().av);
   var names = (me() && me().names) || {};
   NAME_FIELDS.forEach(function (f) { var el = $('nm_' + f[0]); if (el) el.value = names[f[0]] || ''; });
   $('namesBox').open = NAME_FIELDS.some(function (f) { return names[f[0]]; });
@@ -695,6 +700,19 @@ function needNick() {
   toast('Add your name first');
   openNick(true); return true;
 }
+
+/* ---------- light or dark ----------
+   Dark is the default. "Match my device" follows the phone's setting. Saved on this device only. */
+function themePref() {
+  try { var v = localStorage.getItem('pp.theme'); if (v === 'light' || v === 'auto' || v === 'dark') return v; } catch (e) {}
+  return 'dark';
+}
+function applyTheme() {
+  var v = themePref(), root = document.documentElement;
+  if (v === 'dark') root.removeAttribute('data-theme'); else root.setAttribute('data-theme', v);
+  document.querySelectorAll('#themeSeg button').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.theme === v)); });
+}
+function setTheme(v) { try { localStorage.setItem('pp.theme', v); } catch (e) {} applyTheme(); }
 
 /* ---------- tabs ----------
    Games, Pods, Me and (for organizers) Organizer. A bottom bar on phones, tabs along the top on wide screens.
@@ -732,6 +750,7 @@ function renderTabs() {
     if (b.dataset.tab === t) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
   });
   $('view-games').hidden = t !== 'games';
+  $('hero').hidden = !(on && t === 'games');
   $('view-pods').hidden = t !== 'pods';
   $('view-me').hidden = t !== 'me';
   $('membersSec').hidden = !(t === 'organizer' && tabAllowed('organizer'));
@@ -767,7 +786,7 @@ function renderCardsSeg() {
   var open = cardsOpenByDefault();
   document.querySelectorAll('#cardsSeg button').forEach(function (b) { b.setAttribute('aria-pressed', String((b.dataset.cards === 'open') === open)); });
 }
-function isOpen(key) { return Object.prototype.hasOwnProperty.call(S.open, key) ? S.open[key] : cardsOpenByDefault(); }
+function isOpen(key, byDefault) { return Object.prototype.hasOwnProperty.call(S.open, key) ? S.open[key] : (byDefault != null ? byDefault : cardsOpenByDefault()); }
 
 /* ---------- what still needs your answer ---------- */
 var NEED_DAYS = 14;
@@ -1367,9 +1386,19 @@ function renderMe() {
   if (!canWrite()) return;
   var m = me();
   box.append(m && m.nick
-    ? h('button', { class: 'me-btn', type: 'button', onclick: function () { openNick(false); } }, h('span', { text: m.nick }), pips(m.ci), h('small', { text: 'Profile' }))
+    ? h('button', { class: 'me-btn', type: 'button', onclick: function () { openNick(false); } }, avatarDot(m), h('span', { text: m.nick }), pips(m.ci), h('small', { text: 'Profile' }))
     : h('button', { class: 'me-btn', type: 'button', onclick: function () { openNick(true); } }, 'Set your name'));
   if (ACCOUNTS) box.append(h('button', { type: 'button', class: 'link', id: 'signOutBtn', onclick: signOutNow }, 'Sign out'));
+}
+function avatarDot(p) {
+  var art = avatarArt(p); if (!art) return null;
+  var el = h('span', { class: 'dart sm', 'aria-hidden': 'true' }); el.style.backgroundImage = 'url("' + art + '")'; return el;
+}
+function renderAvPrev(av) {
+  var el = $('avPrev'); if (!el) return;
+  var art = av ? safeArt(av.art) : '';
+  el.style.backgroundImage = art ? 'url("' + art + '")' : '';
+  el.textContent = art ? '' : initial($('nick').value || (me() && me().nick));
 }
 function memberCount(id) {
   return livePeople().filter(function (p) { return p.nick && p.pods && p.pods.indexOf(id) >= 0; }).length;
@@ -1587,7 +1616,7 @@ function renderPolls() {
   list.forEach(function (p) { box.append(pollCard(p, pm)); });
 }
 
-function nightCard(n, pm, g) {
+function nightCard(n, pm, g, openByDefault) {
   var ser = n.virtual ? seriesById(n.series) : null;
   var c = tally(n, pm), st = statusOf(n, c), min = n.min || 4;
   var d = parseDate(n.date);
@@ -1597,12 +1626,13 @@ function nightCard(n, pm, g) {
   var seats = h('div', { class: 'seats', role: 'img', 'aria-label': c.yes.length + ' in, ' + c.maybe.length + ' maybe, ' + min + ' needed' });
   var credits = [];
   function seat(p, cls, suffix) {
-    var ds = decksFor(p, n), d = ds[0], art = d ? safeArt(d.art) : '';
+    var ds = decksFor(p, n), d = ds[0], art = d ? safeArt(d.art) : '', artist = d ? d.artist : '';
+    if (!art) { art = avatarArt(p); artist = art && p.av ? p.av.artist : ''; }
     var over = ds.some(function (x) { return overLimit(x, n); });
     var el = h('span', { class: 'seat ' + cls + (art ? ' hasart' : '') + (over ? ' over' : ''),
       title: p.nick + suffix + (ds.length ? ': ' + ds.map(function (x) { return x.name + (hasBrackets(n.format) && x.b ? ' (B' + x.b + ')' : ''); }).join(', ') : ''),
       text: initial(p.nick) });
-    if (art) { el.style.backgroundImage = 'url("' + art + '")'; if (d.artist && credits.indexOf(d.artist) < 0) credits.push(d.artist); }
+    if (art) { el.style.backgroundImage = 'url("' + art + '")'; if (artist && credits.indexOf(artist) < 0) credits.push(artist); }
     return el;
   }
   for (var i = 0; i < seatsN; i++) {
@@ -1692,7 +1722,7 @@ function nightCard(n, pm, g) {
           a ? h('i', { class: 'ans ans-' + a, title: a === 'yes' ? "You're in" : a === 'maybe' ? 'Maybe' : "Can't make it" }) : null);
       }));
   }
-  var key = g ? g.key : n.id, opened = isOpen(key);
+  var key = g ? g.key : n.id, opened = isOpen(key, openByDefault);
   var more = h('button', { type: 'button', class: 'more', 'aria-expanded': String(opened),
     onclick: function () { S.open[key] = !opened; renderNights(); } }, opened ? 'Less' : 'Details');
   var joinRow = n.online && joinLink ? h('a', { class: 'joinbtn', href: joinLink, target: '_blank', rel: 'noopener' }, 'Join game' + (n.platform ? ' on ' + n.platform : '')) : null;
@@ -1725,7 +1755,7 @@ function nightCard(n, pm, g) {
 function renderNights() {
   keepFocus(function () {
     var box = $('nights'); box.replaceChildren();
-    if (!S.loaded.nights || !S.loaded.series) { box.append(h('p', { class: 'empty', text: S.db ? 'Loading the board…' : 'Nothing to show until setup is finished.' })); return; }
+    if (!S.loaded.nights || !S.loaded.series) { box.append(h('p', { class: 'empty', text: S.db ? 'Loading the board…' : 'Nothing to show until setup is finished.' })); renderHero(podById()); renderWeek([], podById()); return; }
     var pm = podById(), today = todayStr(), week = addDaysYmd(today, 7);
     var all = groupNights(upcomingNights());
     var shown = all.filter(function (g) { return visibleFor(g.items[0], pm); });
@@ -1746,8 +1776,9 @@ function renderNights() {
     [['Needs your answer', needs], ['Next 7 days', soon], ['Later', later]].forEach(function (sec, i) {
       if (!sec[1].length) return;
       box.append(h('h3', { class: 'grouphead' + (i === 0 ? ' needs' : ''), text: sec[0] }));
-      sec[1].forEach(function (g) { box.append(nightCard(selectedIn(g), pm, g)); });
+      sec[1].forEach(function (g) { box.append(nightCard(selectedIn(g), pm, g, i === 0 ? true : null)); });
     });
+    renderWeek(shown, pm); renderHero(pm);
 
     var past = pastNights().sort(function (x, y) { return (y.date + (y.time || '')).localeCompare(x.date + (x.time || '')); });
     var pw = $('pastWrap'), pb = $('past'); pb.replaceChildren();
@@ -1774,6 +1805,142 @@ function updateControls() {
 function renderAll() {
   applyIdentity(S.ciDraft != null && S.tab === 'me' ? S.ciDraft : (me() && me().ci));
   renderGate(); renderNotice(); renderMe(); renderDecks(); renderNotif(); renderPods(); renderInvites(); renderDiscordProfile(); renderFormPods(); renderFilter(); renderPolls(); renderNights(); renderMembers(); updateControls(); maybeOpenNick(); renderTabs();
+}
+
+/* ---------- the band: next game and this week ----------
+   The top of the Games tab shows one game: the next one you're in, else one waiting on your answer,
+   else one with open seats, else the next game at all. With nothing coming up it invites you to call one. */
+function nightKey(n) { return n.series ? 's:' + n.series : 'n:' + n.id; }
+function heroPick(pm) {
+  var m = me(), list = groupNights(upcomingNights()).map(function (g) { return g.items[0]; });
+  var mine = list.filter(function (n) { return m && answerOf(m, n) === 'yes'; });
+  if (mine.length) return { kind: 'in', n: mine[0] };
+  var need = list.filter(function (n) { return needsNight(n, pm); });
+  if (need.length) return { kind: 'answer', n: need[0] };
+  var open = list.filter(function (n) { return m && m.nick && invited(m, n, pm) && answerOf(m, n) !== 'no' && tally(n, pm).yes.length < (n.min || 4); });
+  if (open.length) return { kind: 'open', n: open[0] };
+  if (list.length) return { kind: 'next', n: list[0] };
+  return { kind: 'empty' };
+}
+function untilText(n) {
+  var t = parseDate(n.date), tm = (n.time || '19:00').split(':').map(Number); t.setHours(tm[0], tm[1] || 0, 0, 0);
+  var ms = t - new Date();
+  if (ms < 0) return n.date === todayStr() ? 'happening now' : '';
+  var hrs = Math.round(ms / 36e5), d = Math.floor(hrs / 24), rem = hrs - d * 24;
+  if (d >= 1) return 'in ' + d + (d === 1 ? ' day' : ' days') + (rem ? ', ' + rem + (rem === 1 ? ' hour' : ' hours') : '');
+  return hrs >= 1 ? 'in ' + hrs + (hrs === 1 ? ' hour' : ' hours') : 'in under an hour';
+}
+function heroMeta(n, pm) {
+  var parts = [fmtWhen(n.date, n.time)];
+  if (n.online) parts.push('Online' + (n.platform ? ' on ' + n.platform : ''));
+  else { if (n.place) parts.push(n.place); if (n.region) parts.push(n.region); }
+  if (hasBrackets(n.format) && n.bracket > 0) parts.push('Bracket ' + n.bracket + ' or lower'); else if (n.format) parts.push(n.format);
+  var pods = podNames(n, pm); if (pods.length) parts.push(pods.join(', '));
+  return parts.join(' · ');
+}
+// Scroll to a game's card, opening it and clearing any filter that hides it.
+function showCard(n) {
+  var key = nightKey(n);
+  S.sel[key] = n.id; S.open[key] = true;
+  var find = function () { return $('nights').querySelector('[data-key="' + key.replace(/"/g, '') + '"]'); };
+  renderNights();
+  if (!find() && filtersOn()) clearFilters();
+  var el = find(); if (!el) return;
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  var first = el.querySelector('button:not([disabled])'); if (first) first.focus({ preventScroll: true });
+}
+function openCallFor(date, mode) {
+  if (needNick()) return;
+  resetNightForm();
+  if (date) { $('nDate').value = date; updateRepeatUI(); }
+  if (mode === 'poll') setMode('poll');
+  openSheet();
+}
+function renderHero(pm) {
+  var box = $('hero'); if (!box) return;
+  box.replaceChildren();
+  var on = !gated() && S.state === 'ok' && !!S.db;
+  box.hidden = !(on && S.tab === 'games');
+  if (!on || !S.loaded.nights || !S.loaded.series) return;
+  var m = me(), pick = heroPick(pm), text = h('div', { class: 'htext' }), btns = h('div', { class: 'hbtns' });
+  function hb(label, cls, onclick, attrs) {
+    var el = h('button', Object.assign({ type: 'button', class: 'hb ' + (cls || ''), onclick: onclick }, attrs || {}), label);
+    return el;
+  }
+  if (pick.kind === 'empty') {
+    text.append(h('span', { class: 'hlbl', text: 'Nothing on the calendar yet' }), h('h2', { class: 'htitle', text: 'No games coming up' }),
+      h('p', { class: 'hmeta', text: m && m.nick ? 'Be the one who calls it. Pick a date, or post a few dates and let people vote.' : 'Add your name on the Me tab, then call the first one.' }));
+    if (canWrite()) btns.append(hb('Call a night', '', function () { openCallFor('', 'fixed'); }), hb('Start a date poll', 'g', function () { openCallFor('', 'poll'); }));
+    text.append(btns);
+    box.append(h('div', { class: 'hero-in' }, text, heroTable(null, [], 4)));
+    return;
+  }
+  var n = pick.n, c = tally(n, pm), min = n.min || 4, mineAns = m ? answerOf(m, n) : undefined, st = statusOf(n, c);
+  var lbl = pick.kind === 'in' ? 'Next up · ' + (untilText(n) || fmtWhen(n.date, n.time))
+    : pick.kind === 'answer' ? 'Are you in? · ' + fmtWhen(n.date, n.time)
+    : pick.kind === 'open' ? 'Open seats · needs ' + (min - c.yes.length) + ' more'
+    : 'Next up · ' + (untilText(n) || fmtWhen(n.date, n.time));
+  text.append(h('span', { class: 'hlbl', text: lbl }), h('h2', { class: 'htitle', text: n.title }), h('p', { class: 'hmeta', text: heroMeta(n, pm) }));
+  var addr = addressOf(n), dir = !n.online && addr && canSeeHidden(n) ? mapsUrl(addr) : '', join = n.online ? linkOf(n) : '';
+  if (pick.kind === 'answer' || (pick.kind === 'open' && canWrite())) {
+    if (pick.kind === 'answer') [['yes', "I'm in"], ['maybe', 'Maybe'], ['no', "Can't"]].forEach(function (r) {
+      btns.append(hb(r[1], r[0] === 'yes' ? '' : 'g', function () { answer(n, r[0]); }, { 'aria-pressed': String(mineAns === r[0]) }));
+    });
+    else btns.append(hb('Grab a seat', '', function () { answer(n, 'yes'); }));
+    btns.append(hb('Details', 'g', function () { showCard(n); }));
+  } else {
+    btns.append(hb(mineAns === 'yes' ? "You're in ✓" : mineAns === 'maybe' ? 'Maybe · change' : 'Details', mineAns === 'yes' ? 'yes' : '', function () { showCard(n); }));
+    if (join) btns.append(h('a', { class: 'hb g', href: join, target: '_blank', rel: 'noopener' }, 'Join game'));
+    else if (dir) btns.append(h('a', { class: 'hb g', href: dir, target: '_blank', rel: 'noopener' }, 'Directions'));
+    if (mineAns === 'yes' || join || dir) btns.append(hb('Details', 'g', function () { showCard(n); }));
+  }
+  text.append(btns);
+  var seats = c.yes.map(function (p) { return ['yes', p]; }).concat(c.maybe.map(function (p) { return ['maybe', p]; }));
+  box.append(h('div', { class: 'hero-in' }, text, heroTable(n, seats, Math.max(min, c.yes.length))));
+  box.setAttribute('data-status', st.cls);
+}
+function heroTable(n, seats, min) {
+  var N = Math.min(8, Math.max(min, seats.length)), tbl = h('div', { class: 'htable', role: 'img', 'aria-label': seats.length + ' at the table, ' + min + ' needed' });
+  for (var i = 0; i < N; i++) {
+    var a = -Math.PI / 2 + i * 2 * Math.PI / N, x = 50 + 44 * Math.cos(a), y = 50 + 36 * Math.sin(a);
+    var s = seats[i], el;
+    if (s) {
+      var p = s[1], ds = n ? decksFor(p, n) : [], d = ds[0], art = (d ? safeArt(d.art) : '') || avatarArt(p);
+      var over = n && ds.some(function (x) { return overLimit(x, n); });
+      el = h('span', { class: 'hseat ' + s[0] + (art ? ' hasart' : '') + (over ? ' over' : ''), text: initial(p.nick), title: p.nick + (s[0] === 'maybe' ? ' (maybe)' : '') }, h('small', { text: p.nick }));
+      if (art) el.style.backgroundImage = 'url("' + art + '")';
+    } else el = h('span', { class: 'hseat open', text: n ? 'Open' : '+' });
+    el.style.setProperty('--x', x.toFixed(1)); el.style.setProperty('--y', y.toFixed(1));
+    tbl.append(el);
+  }
+  return tbl;
+}
+// Seven days from today, with the games on each. A free day opens "Call a night" on that date.
+function renderWeek(shown, pm) {
+  var box = $('week'); if (!box) return;
+  box.replaceChildren();
+  if (!S.loaded.nights || !S.loaded.series) return;
+  var today = todayStr(), m = me();
+  var items = [];
+  shown.forEach(function (g) { g.items.forEach(function (n) { items.push(n); }); });
+  var first = parseDate(today), last = parseDate(addDaysYmd(today, 6));
+  var range = first.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' – ' + last.toLocaleDateString(undefined, { month: first.getMonth() === last.getMonth() ? undefined : 'short', day: 'numeric' });
+  box.append(h('h3', null, 'This week', h('small', { text: range })));
+  var days = h('div', { class: 'wdays' });
+  for (var i = 0; i < 7; i++) (function (day) {
+    var d = parseDate(day), evs = items.filter(function (n) { return n.date === day; }).sort(function (a, b) { return (a.time || '').localeCompare(b.time || ''); });
+    var cell = h('div', { class: 'wday' + (i === 0 ? ' today' : '') },
+      h('h4', null, h('b', { text: String(d.getDate()) }), d.toLocaleDateString(undefined, { weekday: 'short' })));
+    var list = h('div', { class: 'wevs' });
+    evs.forEach(function (n) {
+      var c = tally(n, pm), st = statusOf(n, c), fr = frameFor(n, pm), mine = m ? answerOf(m, n) : undefined;
+      var sub = [fmtTime(n.time), mine === 'yes' ? "You're in" : st.cls === 'on' ? 'Game on' : c.yes.length + ' of ' + (n.min || 4)].filter(Boolean).join(' · ');
+      list.append(h('button', { type: 'button', class: 'wev ' + fr.frame + (st.cls === 'on' ? ' on' : ''), onclick: function () { showCard(n); } }, n.title, h('small', { text: sub })));
+    });
+    if (!evs.length) list.append(canWrite() ? h('button', { type: 'button', class: 'wopen', onclick: function () { openCallFor(day, 'fixed'); } }, 'Open night · call one') : h('span', { class: 'wopen', text: 'Open night' }));
+    cell.append(list); days.append(cell);
+  })(addDaysYmd(today, i));
+  box.append(days);
 }
 
 /* ---------- recurring games ----------
@@ -2186,6 +2353,13 @@ function wireForms() {
   window.addEventListener('popstate', function () { setTab(tabFromHash() || 'games', true); });
   window.addEventListener('hashchange', function () { var t = tabFromHash(); if (t && t !== S.tab) setTab(t, true); });
   document.querySelectorAll('#cardsSeg button').forEach(function (b) { b.addEventListener('click', function () { setCardsPref(b.dataset.cards); }); });
+  document.querySelectorAll('#themeSeg button').forEach(function (b) { b.addEventListener('click', function () { setTheme(b.dataset.theme); }); });
+  applyTheme();
+  suggestBox({ input: 'avCmd', list: 'avList', min: 3, search: cardSearch,
+    view: function (it) { return { title: it.name, sub: it.type }; },
+    typed: function () { S.avPick = null; },
+    pick: function (it) { S.avPick = it; $('avCmd').value = it.name; renderAvPrev(it); } });
+  $('avCmd').addEventListener('input', function () { if (!$('avCmd').value.trim()) renderAvPrev(null); });
   renderCardsSeg();
   $('nightCancel').addEventListener('click', function () { resetNightForm(); closeSheet(); });
   $('addPodBtn').addEventListener('click', function () { if (!$('podForm').hidden && !S.podEdit) { $('podForm').hidden = true; return; } openPodForm(null); });
@@ -2254,9 +2428,14 @@ function wireForms() {
     var same = area === (m.area || '');
     var lookup = !area ? Promise.resolve(null) : same && typeof m.alat === 'number' ? Promise.resolve({ lat: m.alat, lng: m.alng })
       : S.areaPick && S.areaPick.value === area ? Promise.resolve({ lat: S.areaPick.lat, lng: S.areaPick.lng }) : geocode(area);
-    lookup.then(function (g) {
+    var avName = $('avCmd').value.trim().slice(0, 80), curAv = m.av || null;
+    var avLookup = !avName ? Promise.resolve(null) : S.avPick && S.avPick.name === avName ? Promise.resolve(S.avPick)
+      : curAv && curAv.name === avName ? Promise.resolve(curAv) : commanderArt(avName);
+    Promise.all([lookup, avLookup]).then(function (r) {
+      var g = r[0], av = r[1];
       saveMe(function (c) {
         c.nick = v; if (ci) c.ci = ci; else delete c.ci;
+        if (av && av.art) c.av = { name: av.name, art: av.art, artist: av.artist || '' }; else if (!avName) delete c.av;
         var nm = {};
         NAME_FIELDS.forEach(function (f) { var x = $('nm_' + f[0]).value.trim().slice(0, 40); if (x) nm[f[0]] = x; });
         if (Object.keys(nm).length) c.names = nm; else delete c.names;

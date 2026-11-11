@@ -1,5 +1,6 @@
   /* Stone, with a hint of the viewer's own colors (the accent follows their color identity) */
   --bg:color-mix(in srgb,var(--accent) 9%,#EFEEEC); --surface:#FBFBFA; --surface-2:color-mix(in srgb,var(--accent) 7%,#E9E7E4);
+  --band:color-mix(in srgb,var(--accent) 55%,#0B0F14); --band-ink:#F4F2EE;
   --ink:#1A1917; --muted:#5F5B56; --line:#D5D2CD;
   --hi:#FFFFFF;
   --good:#17703F; --good-soft:#D2EBDC;
