@@ -1664,6 +1664,32 @@ function podCard(p, on, upcoming, pm) {
       h('div', { class: 'typeline' }, h('span', { class: 'podnames', text: names })),
       h('div', { class: 'textbox' }, nextRow, acts)));
 }
+// The top of the Me tab: your picture, name, colors and area, and a few numbers.
+function renderMeHero() {
+  var box = $('meHero'); if (!box) return;
+  box.replaceChildren();
+  var m = me(); box.hidden = !(m && m.nick);
+  if (box.hidden) return;
+  var art = avatarArt(m), pm = podById(), today = todayStr();
+  var played = pastNights().filter(function (n) { return answerOf(m, n) === 'yes'; }).length;
+  var coming = groupNights(upcomingNights()).map(function (g) { return g.items[0]; }).filter(function (n) { return answerOf(m, n) === 'yes'; }).length;
+  var pods = myPods().filter(function (id) { return pm[id]; }).length, decks = deckList(m).length;
+  var pic = h('span', { class: 'mepic' + (art ? ' hasart' : ''), 'aria-hidden': 'true', text: art ? '' : initial(m.nick) });
+  if (art) pic.style.backgroundImage = 'url("' + art + '")';
+  var bg = h('div', { class: 'mebg', 'aria-hidden': 'true' });
+  if (art) bg.style.backgroundImage = 'url("' + art + '")';
+  var ci = validCi(m.ci);
+  var names = h('div', { class: 'menames' });
+  NAME_FIELDS.forEach(function (f) { var v = m.names && m.names[f[0]]; if (v) names.append(h('span', { class: 'mechip' }, h('small', { text: f[1].replace(/ \(.*\)$/, '') }), h('code', { text: v }))); });
+  function stat(n, label) { return h('div', { class: 'mestat' }, h('b', { text: String(n) }), h('small', { text: label })); }
+  box.append(bg, h('div', { class: 'mehero-in' }, pic,
+    h('div', { class: 'meid' },
+      h('span', { class: 'hlbl', text: 'Your profile' }),
+      h('h2', { class: 'mename', text: m.nick }),
+      h('p', { class: 'hmeta' }, ci ? pips(ci) : null, ' ' + ciName(ci) + (m.area ? ' · ' + m.area : '') + (m.av && m.av.name ? ' · Picture: ' + m.av.name : '')),
+      names.children.length ? names : null),
+    h('div', { class: 'mestats' }, stat(played, played === 1 ? 'game played' : 'games played'), stat(coming, 'coming up'), stat(pods, pods === 1 ? 'pod' : 'pods'), stat(decks, decks === 1 ? 'deck' : 'decks'))));
+}
 function openInviteFor(podId) {
   $('inviteBox').hidden = false;
   var f = $('inviteForm'); f.hidden = false; fillInviteSelects();
@@ -2049,7 +2075,7 @@ function updateControls() {
 }
 function renderAll() {
   applyIdentity(S.ciDraft != null && S.tab === 'me' ? S.ciDraft : (me() && me().ci));
-  renderGate(); renderNotice(); renderMe(); renderDecks(); renderNotif(); renderPods(); renderInvites(); renderDiscordProfile(); renderFormPods(); renderFilter(); renderPolls(); renderNights(); renderMembers(); updateControls(); maybeOpenNick(); renderTabs();
+  renderGate(); renderNotice(); renderMe(); renderMeHero(); renderDecks(); renderNotif(); renderPods(); renderInvites(); renderDiscordProfile(); renderFormPods(); renderFilter(); renderPolls(); renderNights(); renderMembers(); updateControls(); maybeOpenNick(); renderTabs();
 }
 
 /* ---------- the band: next game and this week ----------

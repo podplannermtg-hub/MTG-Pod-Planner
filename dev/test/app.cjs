@@ -648,6 +648,11 @@ const calls = (page) => page.evaluate(() => window.__calls);
     await page.waitForFunction(() => window.__store.people.me1.av && /sl1/.test(window.__store.people.me1.av.art));
     check('picture saved with the chosen version', (await store(page)).people.me1.av.artist === 'SL Artist');
     await tab(page, 'me');
+    check('Me header shows name, picture and numbers', (await page.locator('#meHero .mename').textContent()) === 'Rob'
+      && (await page.locator('#meHero .mepic').evaluate((e) => e.style.backgroundImage)).includes('sl1')
+      && (await page.locator('#meHero .mestat').count()) === 4
+      && (await page.locator('#meHero .mestat', { hasText: 'deck' }).locator('b').textContent()) === String((await store(page)).people.me1.decks.length));
+    await tab(page, 'me');
     await page.waitForFunction(() => /Secret Lair/.test((document.querySelector('#avArt .artnow') || {}).textContent || ''));
     check('reopening Me shows the saved version', true);
     await page.click('#addDeckBtn');

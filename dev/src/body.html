@@ -23,9 +23,13 @@
 
   <div id="board" class="board">
   <section id="view-me" class="strip view" aria-labelledby="meH" hidden>
-  <div class="head"><h2 id="meH">Your profile</h2></div>
+  <h2 id="meH" class="vh">Your profile</h2>
+  <div id="meHero" class="mehero"></div>
   <p class="hint" id="welcome" hidden>Welcome! Add your name so your friends know who's coming.</p>
+  <div class="megrid">
+  <div class="mecol">
   <form id="nickForm" class="panel">
+    <span class="sublabel">Profile</span>
     <div class="field">
       <label for="nick">Your name at the table</label>
       <input id="nick" type="text" maxlength="24" autocomplete="nickname" placeholder="Rob" required>
@@ -70,6 +74,8 @@
       <button class="ghost" type="button" id="nickCancel">Cancel</button>
     </div>
   </form>
+  </div>
+  <div class="mecol">
   <div class="panel" id="decksPanel">
     <div class="head"><span class="sublabel">My decks</span><button type="button" class="ghost small" id="addDeckBtn">Add a deck</button></div>
     <div id="deckList" class="decklist"></div>
@@ -126,6 +132,8 @@
       <button type="button" data-cards="open" aria-pressed="false">Show details</button>
     </div>
     <p class="hint">Compact cards keep the list short. Games waiting on your answer always start open. Saved on this device.</p>
+  </div>
+  </div>
   </div>
   </section>
 

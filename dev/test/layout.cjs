@@ -42,7 +42,7 @@ const probe = () => {
   const vis = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
   const label = (el) => el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') + (el.className && typeof el.className === 'string' ? '.' + el.className.trim().split(/\s+/).join('.') : '') + ' "' + (el.textContent || '').trim().slice(0, 30) + '"';
   document.querySelectorAll('#app *, #nightForm *').forEach((el) => {
-    if (!vis(el) || el.closest('[hidden]') || el.closest('.wdays')) return; // .wdays scrolls sideways on phones
+    if (!vis(el) || el.closest('[hidden]') || el.closest('.wdays') || el.classList.contains('mebg')) return; // .wdays scrolls sideways on phones; .mebg is a clipped blur
     const r = el.getBoundingClientRect();
     if (r.right > vw + 0.5 || r.left < -0.5) issues.push('outside viewport: ' + label(el) + ' [' + Math.round(r.left) + ',' + Math.round(r.right) + ']');
     const box = el.parentElement && el.parentElement.closest('.card-in,.panel,.textbox,.titlebar,.typeline,.art,.opt,.rsvp,.mrow');

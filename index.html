@@ -402,7 +402,8 @@ body.tabbed #toast{bottom:calc(84px + env(safe-area-inset-bottom,0px))}
   body.tabbed #toast{bottom:calc(24px + env(safe-area-inset-bottom,0px))}
 }
 .view{scroll-margin-top:80px}
-#view-me,#membersSec{max-width:720px;width:100%}
+#membersSec{max-width:720px;width:100%}
+#view-me{width:100%}
 
 /* ---------- compact cards ---------- */
 .card.compact .meta,.card.compact .flavor,.card.compact .roster,.card.compact .textbox > .bring,.card.compact .foot{display:none}
@@ -651,6 +652,41 @@ a.deckrow2{border-color:var(--line)}
 .podacts{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .podacts .podedit{margin-left:auto}
 .podcard:not(.mine) .card-in{opacity:.94}
+
+/* ---------- Me tab: a profile header, then the form beside your decks and settings ---------- */
+.vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.mehero{position:relative;overflow:hidden;border-radius:20px;background:var(--band);color:var(--band-ink);border:1px solid var(--line)}
+.mebg{position:absolute;inset:-40px;background:center/cover;filter:blur(36px) saturate(1.2);opacity:.45;transform:scale(1.1)}
+.mehero::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,color-mix(in srgb,var(--band) 92%,transparent),color-mix(in srgb,var(--band) 55%,transparent));pointer-events:none}
+.mehero-in{position:relative;z-index:1;display:grid;grid-template-columns:auto minmax(0,1fr);gap:16px 20px;align-items:center;padding:20px}
+.mepic{width:84px;height:84px;border-radius:50%;display:grid;place-items:center;background:color-mix(in srgb,var(--band-ink) 14%,transparent) center/cover;
+  font:800 34px/1 var(--font-display);color:var(--band-ink);box-shadow:0 0 0 4px rgba(0,0,0,.4),0 16px 30px -12px rgba(0,0,0,.7)}
+.mepic.hasart{color:transparent}
+.meid{min-width:0;display:flex;flex-direction:column;gap:4px}
+.mename{font-family:var(--font-display);font-weight:800;font-size:clamp(28px,4vw,40px);line-height:1.05;color:var(--band-ink);overflow-wrap:anywhere}
+.meid .hmeta .pips i{width:10px;height:10px}
+.menames{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.mechip{display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border-radius:999px;background:color-mix(in srgb,var(--band-ink) 10%,transparent);font-size:12px}
+.mechip small{color:color-mix(in srgb,var(--band-ink) 70%,transparent)}
+.mechip code{font-family:var(--font-mono);color:var(--band-ink)}
+.mestats{grid-column:1/-1;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.mestat{background:color-mix(in srgb,var(--band-ink) 8%,transparent);border:1px solid color-mix(in srgb,var(--band-ink) 14%,transparent);border-radius:12px;padding:8px 10px;display:flex;flex-direction:column}
+.mestat b{font:700 22px/1.1 var(--font-mono);color:var(--band-ink)}
+.mestat small{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:color-mix(in srgb,var(--band-ink) 70%,transparent)}
+.megrid{display:flex;flex-direction:column;gap:16px}
+.mecol{display:flex;flex-direction:column;gap:16px;min-width:0}
+#decksPanel .decklist{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,260px),1fr));gap:8px}
+#decksPanel .deckrow{border:1px solid var(--line);border-radius:12px;padding:10px;background:var(--bg)}
+#decksPanel .deckrow:first-child{padding-top:10px;border-top:1px solid var(--line)}
+#decksPanel .dart{width:52px;height:52px}
+@media (min-width:900px){
+  .mehero-in{grid-template-columns:auto minmax(0,1fr) auto;padding:26px 28px}
+  .mepic{width:104px;height:104px;font-size:40px}
+  .mestats{grid-column:auto;grid-template-columns:repeat(2,minmax(96px,1fr))}
+  .megrid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:20px;align-items:start}
+}
+@media (min-width:1300px){ .mestats{grid-template-columns:repeat(4,minmax(96px,1fr))} }
+@media (max-width:430px){ .mestats{grid-template-columns:repeat(2,minmax(0,1fr))} .mehero-in{padding:16px} .mepic{width:72px;height:72px;font-size:28px} }
 </style>
 </head>
 <body>
@@ -679,9 +715,13 @@ a.deckrow2{border-color:var(--line)}
 
   <div id="board" class="board">
   <section id="view-me" class="strip view" aria-labelledby="meH" hidden>
-  <div class="head"><h2 id="meH">Your profile</h2></div>
+  <h2 id="meH" class="vh">Your profile</h2>
+  <div id="meHero" class="mehero"></div>
   <p class="hint" id="welcome" hidden>Welcome! Add your name so your friends know who's coming.</p>
+  <div class="megrid">
+  <div class="mecol">
   <form id="nickForm" class="panel">
+    <span class="sublabel">Profile</span>
     <div class="field">
       <label for="nick">Your name at the table</label>
       <input id="nick" type="text" maxlength="24" autocomplete="nickname" placeholder="Rob" required>
@@ -726,6 +766,8 @@ a.deckrow2{border-color:var(--line)}
       <button class="ghost" type="button" id="nickCancel">Cancel</button>
     </div>
   </form>
+  </div>
+  <div class="mecol">
   <div class="panel" id="decksPanel">
     <div class="head"><span class="sublabel">My decks</span><button type="button" class="ghost small" id="addDeckBtn">Add a deck</button></div>
     <div id="deckList" class="decklist"></div>
@@ -782,6 +824,8 @@ a.deckrow2{border-color:var(--line)}
       <button type="button" data-cards="open" aria-pressed="false">Show details</button>
     </div>
     <p class="hint">Compact cards keep the list short. Games waiting on your answer always start open. Saved on this device.</p>
+  </div>
+  </div>
   </div>
   </section>
 
@@ -1006,7 +1050,7 @@ a.deckrow2{border-color:var(--line)}
 </form>
 <div id="toast" role="status" hidden></div>
 
-<script src="config.js?v=c5c16e738a"></script>
-<script type="module" src="app.js?v=c5c16e738a"></script>
+<script src="config.js?v=80feaceb6d"></script>
+<script type="module" src="app.js?v=80feaceb6d"></script>
 </body>
 </html>
