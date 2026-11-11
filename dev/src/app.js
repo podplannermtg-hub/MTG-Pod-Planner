@@ -1756,7 +1756,7 @@ function renderNights() {
   keepFocus(function () {
     var box = $('nights'); box.replaceChildren();
     if (!S.loaded.nights || !S.loaded.series) { box.append(h('p', { class: 'empty', text: S.db ? 'Loading the board…' : 'Nothing to show until setup is finished.' })); renderHero(podById()); renderWeek([], podById()); return; }
-    var pm = podById(), today = todayStr(), week = addDaysYmd(today, 7);
+    var pm = podById(), today = todayStr();
     var all = groupNights(upcomingNights());
     var shown = all.filter(function (g) { return visibleFor(g.items[0], pm); });
     var polls = S.polls.filter(function (p) { return visibleFor(p, pm); }).length;
@@ -1771,9 +1771,8 @@ function renderNights() {
     }
     var needs = shown.filter(function (g) { return needsNight(g.items[0], pm); });
     var rest = shown.filter(function (g) { return needs.indexOf(g) < 0; });
-    var soon = rest.filter(function (g) { return g.items[0].date < week; });
-    var later = rest.filter(function (g) { return g.items[0].date >= week; });
-    [['Needs your answer', needs], ['Next 7 days', soon], ['Later', later]].forEach(function (sec, i) {
+    // Everything else is one list in date order, so cards sit side by side; the week card covers "this week".
+    [['Needs your answer', needs], ['Coming up', rest]].forEach(function (sec, i) {
       if (!sec[1].length) return;
       box.append(h('h3', { class: 'grouphead' + (i === 0 ? ' needs' : ''), text: sec[0] }));
       sec[1].forEach(function (g) { box.append(nightCard(selectedIn(g), pm, g, i === 0 ? true : null)); });
@@ -1813,11 +1812,13 @@ function renderAll() {
 function nightKey(n) { return n.series ? 's:' + n.series : 'n:' + n.id; }
 function heroPick(pm) {
   var m = me(), list = groupNights(upcomingNights()).map(function (g) { return g.items[0]; });
-  var mine = list.filter(function (n) { return m && answerOf(m, n) === 'yes'; });
-  if (mine.length) return { kind: 'in', n: mine[0] };
-  var need = list.filter(function (n) { return needsNight(n, pm); });
-  if (need.length) return { kind: 'answer', n: need[0] };
-  var open = list.filter(function (n) { return m && m.nick && invited(m, n, pm) && answerOf(m, n) !== 'no' && tally(n, pm).yes.length < (n.min || 4); });
+  // The soonest game you're invited to and haven't turned down, whatever your answer so far.
+  var mine = list.filter(function (n) { return m && m.nick && invited(m, n, pm) && answerOf(m, n) !== 'no'; });
+  if (mine.length) {
+    var n = mine[0], a = answerOf(m, n);
+    return { kind: a === 'yes' ? 'in' : a === 'maybe' ? 'maybe' : 'answer', n: n };
+  }
+  var open = list.filter(function (n) { return m && answerOf(m, n) !== 'no' && tally(n, pm).yes.length < (n.min || 4); });
   if (open.length) return { kind: 'open', n: open[0] };
   if (list.length) return { kind: 'next', n: list[0] };
   return { kind: 'empty' };
@@ -1878,15 +1879,17 @@ function renderHero(pm) {
   var n = pick.n, c = tally(n, pm), min = n.min || 4, mineAns = m ? answerOf(m, n) : undefined, st = statusOf(n, c);
   var lbl = pick.kind === 'in' ? 'Next up · ' + (untilText(n) || fmtWhen(n.date, n.time))
     : pick.kind === 'answer' ? 'Are you in? · ' + fmtWhen(n.date, n.time)
+    : pick.kind === 'maybe' ? 'Next up · you said maybe · ' + (untilText(n) || fmtWhen(n.date, n.time))
     : pick.kind === 'open' ? 'Open seats · needs ' + (min - c.yes.length) + ' more'
     : 'Next up · ' + (untilText(n) || fmtWhen(n.date, n.time));
   text.append(h('span', { class: 'hlbl', text: lbl }), h('h2', { class: 'htitle', text: n.title }), h('p', { class: 'hmeta', text: heroMeta(n, pm) }));
-  var addr = addressOf(n), dir = !n.online && addr && canSeeHidden(n) ? mapsUrl(addr) : '', join = n.online ? linkOf(n) : '';
-  if (pick.kind === 'answer' || (pick.kind === 'open' && canWrite())) {
-    if (pick.kind === 'answer') [['yes', "I'm in"], ['maybe', 'Maybe'], ['no', "Can't"]].forEach(function (r) {
+  var addr = addressOf(n), dir = !n.online && addr ? mapsUrl(addr) : '', join = n.online ? linkOf(n) : '';
+  if (pick.kind === 'answer' || pick.kind === 'maybe' || (pick.kind === 'open' && canWrite())) {
+    if (pick.kind !== 'open') [['yes', "I'm in"], ['maybe', 'Maybe'], ['no', "Can't"]].forEach(function (r) {
       btns.append(hb(r[1], r[0] === 'yes' ? '' : 'g', function () { answer(n, r[0]); }, { 'aria-pressed': String(mineAns === r[0]) }));
     });
     else btns.append(hb('Grab a seat', '', function () { answer(n, 'yes'); }));
+    if (pick.kind === 'maybe' && (join || dir)) btns.append(join ? h('a', { class: 'hb g', href: join, target: '_blank', rel: 'noopener' }, 'Join game') : h('a', { class: 'hb g', href: dir, target: '_blank', rel: 'noopener' }, 'Directions'));
     btns.append(hb('Details', 'g', function () { showCard(n); }));
   } else {
     var mainLabel = mineAns === 'yes' ? "You're in ✓" : mineAns === 'maybe' ? 'Maybe · change' : mineAns === 'no' ? "Can't make it · change" : 'Details';
