@@ -1701,7 +1701,7 @@ function typeLine(kind, item, pm) {
 }
 function nameList(list) {
   var out = [];
-  list.forEach(function (p, i) { if (i) out.push(', '); out.push(h('span', null, p.nick, pips(p.ci))); });
+  list.forEach(function (p, i) { if (i) out.push(', '); out.push(h('span', { text: p.nick })); });
   return out;
 }
 function initial(nick) { return (Array.from(String(nick || '?'))[0] || '?').toUpperCase(); }
