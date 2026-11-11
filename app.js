@@ -2033,10 +2033,10 @@ function renderHero(pm) {
     else btns.append(hb('Grab a seat', '', function () { answer(n, 'yes'); }));
     btns.append(hb('Details', 'g', function () { showCard(n); }));
   } else {
-    btns.append(hb(mineAns === 'yes' ? "You're in ✓" : mineAns === 'maybe' ? 'Maybe · change' : 'Details', mineAns === 'yes' ? 'yes' : '', function () { showCard(n); }));
+    var mainLabel = mineAns === 'yes' ? "You're in ✓" : mineAns === 'maybe' ? 'Maybe · change' : mineAns === 'no' ? "Can't make it · change" : 'Details';
+    btns.append(hb(mainLabel, mineAns === 'yes' ? 'yes' : '', function () { showCard(n); }));
     if (join) btns.append(h('a', { class: 'hb g', href: join, target: '_blank', rel: 'noopener' }, 'Join game'));
     else if (dir) btns.append(h('a', { class: 'hb g', href: dir, target: '_blank', rel: 'noopener' }, 'Directions'));
-    if (mineAns === 'yes' || join || dir) btns.append(hb('Details', 'g', function () { showCard(n); }));
   }
   text.append(btns);
   var seats = c.yes.map(function (p) { return ['yes', p]; }).concat(c.maybe.map(function (p) { return ['maybe', p]; }));
@@ -2044,10 +2044,15 @@ function renderHero(pm) {
   box.setAttribute('data-status', st.cls);
 }
 function heroTable(n, seats, min) {
-  var N = Math.min(8, Math.max(min, seats.length)), tbl = h('div', { class: 'htable', role: 'img', 'aria-label': seats.length + ' at the table, ' + min + ' needed' });
+  var N = Math.min(8, Math.max(min, seats.length)), tbl = h('div', { class: 'htable' + (N > 5 ? ' many' : ''), role: 'img', 'aria-label': seats.length + ' at the table, ' + min + ' needed' });
+  // Spread the people around the table so names don't crowd one side, and with six or more
+  // seats turn the table half a step so no two seats sit directly on top of each other at the ends.
+  var at = {};
+  seats.slice(0, N).forEach(function (s, k) { var j = Math.round(k * N / Math.min(seats.length, N)); while (at[j % N]) j++; at[j % N] = s; });
+  var turn = N >= 6 && N % 2 === 0 ? Math.PI / N : 0;
   for (var i = 0; i < N; i++) {
-    var a = -Math.PI / 2 + i * 2 * Math.PI / N, x = 50 + 44 * Math.cos(a), y = 50 + 36 * Math.sin(a);
-    var s = seats[i], el;
+    var a = -Math.PI / 2 + turn + i * 2 * Math.PI / N, x = 50 + 44 * Math.cos(a), y = 50 + 40 * Math.sin(a);
+    var s = at[i], el;
     if (s) {
       var p = s[1], ds = n ? decksFor(p, n) : [], d = ds[0], art = (d ? safeArt(d.art) : '') || avatarArt(p);
       var over = n && ds.some(function (x) { return overLimit(x, n); });
